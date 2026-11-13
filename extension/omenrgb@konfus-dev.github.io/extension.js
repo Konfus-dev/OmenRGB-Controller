@@ -14,6 +14,19 @@ import {QuickToggle, SystemIndicator} from 'resource:///org/gnome/shell/ui/quick
 
 const ICON = 'keyboard-brightness-symbolic';
 
+// GNOME shows every extension's settings in a window owned by this app.
+const PREFS_APP_ID = 'org.gnome.Shell.Extensions';
+
+/** Our settings window if it is open on any workspace, otherwise null. */
+function findSettingsWindow(title) {
+    return global.get_window_actors()
+        .map(actor => actor.meta_window)
+        .find(window =>
+            window.get_title() === title &&
+            (window.get_gtk_application_id() === PREFS_APP_ID ||
+             window.get_wm_class() === PREFS_APP_ID)) ?? null;
+}
+
 const OmenButton = GObject.registerClass(
 class OmenButton extends QuickToggle {
     _init(extension) {
@@ -22,7 +35,13 @@ class OmenButton extends QuickToggle {
 
         this.connect('clicked', () => {
             Main.panel.closeQuickSettings();
-            extension.openPreferences();
+            // If the settings window is already open, bring it to the front
+            // instead of asking for a second one (which GNOME would refuse).
+            const open = findSettingsWindow(extension.metadata.name);
+            if (open)
+                Main.activateWindow(open);
+            else
+                extension.openPreferences();
         });
     }
 });
