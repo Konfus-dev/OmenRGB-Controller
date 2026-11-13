@@ -270,3 +270,70 @@ def test_forget_makes_the_next_apply_send_again(tmp_path):
     ram.forget()
     ram.apply(True, 100, {}, {})
     assert len(sender.batches) == 2
+
+
+# --- only what changed is sent; slow sends happen in the background -------------
+
+
+def test_a_colour_change_sends_only_the_colour():
+    # Each write goes through the BIOS and takes about 65 ms, so repeating
+    # the whole set-up for every colour change would take over a second.
+    sender = Sender()
+    ram = RamLights(sender, lambda: [LEFT, RIGHT])
+    ram.try_connect()
+    sender.batches.clear()
+    ram.apply(True, 100, {"RAM": "Static"}, {"RAM/Stick 1": "#FF0000", "RAM/Stick 2": "#FF0000"})
+    ram.apply(True, 100, {"RAM": "Static"}, {"RAM/Stick 1": "#0000FF", "RAM/Stick 2": "#FF0000"})
+    assert sender.batches[-1] == [
+        (LEFT, 0x08, BEGIN), (RIGHT, 0x08, BEGIN),
+        (LEFT, 0x31, 0), (LEFT, 0x33, 255),
+        (LEFT, 0x08, END), (RIGHT, 0x08, END),
+    ]  # fmt: skip
+
+
+def test_off_then_on_restores_brightness_only():
+    sender = Sender()
+    ram = RamLights(sender, lambda: [LEFT])
+    ram.try_connect()
+    ram.apply(True, 80, {"RAM": "Static"}, {})
+    ram.apply(False, 80, {"RAM": "Static"}, {})
+    ram.apply(True, 80, {"RAM": "Static"}, {})
+    assert sender.batches[-1] == [(LEFT, 0x08, BEGIN), (LEFT, 0x20, 80), (LEFT, 0x08, END)]
+
+
+def test_background_sending_does_not_hold_up_the_caller_and_latest_wins():
+    import threading
+
+    started, release = threading.Event(), threading.Event()
+    sent = []
+
+    def slow_send(batch):
+        if batch:  # not the connection test
+            started.set()
+            release.wait(5)
+            sent.append(batch)
+
+    ram = RamLights(slow_send, lambda: [LEFT], background=True)
+    ram.try_connect()
+    ram.apply(True, 100, {"RAM": "Static"}, {"RAM/Stick 1": "#FF0000"})  # returns at once
+    assert started.wait(5)  # the slow send is now under way
+    for colour in ("#00FF00", "#0000FF"):
+        ram.apply(True, 100, {"RAM": "Static"}, {"RAM/Stick 1": colour})
+    assert sent == []  # the first send is still in progress
+    release.set()
+    assert ram.wait_idle(5) is True
+    # The first request went out; the middle one was overtaken; the last one won.
+    assert len(sent) == 2
+    assert (LEFT, 0x33, 255) in sent[-1] and (LEFT, 0x31, 0) in sent[-1]
+
+
+def test_background_failure_is_noticed_by_check():
+    def failing_send(batch):
+        if batch:
+            raise OSError("helper died")
+
+    ram = RamLights(failing_send, lambda: [LEFT], background=True, clock=lambda: NOW[0])
+    ram.try_connect()
+    ram.apply(True, 100, {}, {})
+    assert ram.wait_idle(5) is True
+    assert ram.check() is False and ram.connected is False

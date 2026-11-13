@@ -60,7 +60,10 @@ class FakeDevice:
     def set_colors(self, colours, fast=False):
         if self.fail:
             raise OSError("write failed")
-        self.frames.append([rgb(c) for c in colours])
+        frame = [rgb(c) for c in colours]
+        self.frames.append(frame)
+        for zone, colour in zip(self.zones, frame, strict=True):  # one LED per zone
+            zone.colour = colour
 
 
 def make(*devices):
@@ -117,7 +120,7 @@ def test_apply_uses_saved_mode_and_zone_colours():
 def test_apply_defaults_for_unlisted_device_and_zone():
     device = case()
     make(device).apply(True, 100, {}, {})
-    assert device.mode == "Static"
+    assert device.mode == "Direct"  # plain colours are driven by us, in direct mode
     assert [z.colour for z in device.zones] == [(255, 255, 255)] * 2
 
 
@@ -150,9 +153,9 @@ def test_effect_mode_palette_is_filled_from_zone_colours():
     assert [z.colour for z in device.zones] == [None, None]  # effects ignore per-zone writes
 
 
-def test_disabled_uses_off_mode_when_there_is_one():
-    device = case()
-    make(device).apply(False, 100, {"Case": "Breathing"}, {})
+def test_disabled_uses_off_mode_on_a_device_we_cannot_drive_directly():
+    device = FakeDevice("Case", ["Static", "Off", "Wave"], ["Logo"], palettes={"Wave": 4})
+    make(device).apply(False, 100, {"Case": "Wave"}, {})
     assert device.mode == "Off"
 
 
@@ -165,14 +168,14 @@ def test_disabled_sets_black_without_off_mode():
 def test_device_without_modes_is_skipped():
     empty, good = FakeDevice("Empty", [], ["Z"]), case()
     make(empty, good).apply(True, 100, {}, {})
-    assert good.mode == "Static"
+    assert good.mode == "Direct"
 
 
 def test_one_failing_device_does_not_stop_others():
     bad, good = FakeDevice("Bad", ["Static"], ["Z"], fail=True), case()
     lights = make(bad, good)
     lights.apply(True, 100, {}, {})
-    assert good.mode == "Static"
+    assert good.mode == "Direct"
     assert lights.connected is False  # so the service reconnects and retries
 
 
@@ -202,7 +205,7 @@ def test_reconnect_after_error():
     assert lights.connected is False
     assert lights.try_connect() is True
     lights.apply(True, 100, {}, {})
-    assert good.mode == "Static"
+    assert good.mode == "Direct"
 
 
 def test_check_keeps_healthy_connection():
@@ -328,8 +331,9 @@ def test_other_effects_are_not_animated():
     lights = make(device)
     lights.apply(True, 100, {"Case": "Static"}, {})
     assert lights.animating is False
+    sent = len(device.frames)
     lights.tick_animation(1.0)
-    assert device.frames == []
+    assert len(device.frames) == sent  # nothing more to send: no cost while idle
 
 
 def test_each_tick_sends_one_frame_at_the_current_level():
@@ -364,7 +368,9 @@ def test_switching_away_or_off_stops_the_animation():
     assert lights.animating is False
     lights, device = breathing()
     lights.apply(False, 100, {"Case": "Breathing"}, {})
-    assert lights.animating is False and device.mode == "Off"
+    lights.finish_transitions()
+    assert lights.animating is False
+    assert [z.colour for z in device.zones] == [(0, 0, 0)] * 2
 
 
 def test_changing_a_slider_does_not_restart_the_breath():
@@ -432,3 +438,86 @@ def test_forget_restarts_a_breath_from_scratch():
     lights.forget()
     lights.apply(True, 100, {"Case": "Breathing"}, {})
     assert device.mode == "Direct" and lights.animating is True
+
+
+# --- colour changes glide instead of jumping --------------------------------------
+
+
+def near(colour, expected):
+    """Equal within one step: fades land on halves, which round either way."""
+    return all(abs(a - b) <= 1 for a, b in zip(colour, expected, strict=True))
+
+
+def static(colours):
+    device = case()
+    lights = make(device)
+    lights.apply(True, 100, {"Case": "Static"}, colours)
+    return lights, device
+
+
+def test_first_colours_appear_at_once():
+    lights, device = static({"Case/Logo": "#FF0000"})
+    assert device.zones[0].colour == (255, 0, 0) and lights.animating is False
+
+
+def test_a_colour_change_fades_over_a_moment():
+    lights, device = static({"Case/Logo": "#FF0000"})
+    lights.apply(True, 100, {"Case": "Static"}, {"Case/Logo": "#0000FF"})
+    assert lights.animating is True
+    lights.tick_animation(50.0)  # the fade starts on its first frame
+    assert device.zones[0].colour == (255, 0, 0)
+    lights.tick_animation(50.2)  # half-way through a 0.4 s fade
+    assert near(device.zones[0].colour, (128, 0, 128))
+    lights.tick_animation(50.5)
+    assert device.zones[0].colour == (0, 0, 255)
+    assert lights.animating is False  # done: the fast timer can stop
+
+
+def test_a_new_change_mid_fade_carries_on_from_where_it_is():
+    lights, device = static({"Case/Logo": "#FF0000"})
+    lights.apply(True, 100, {"Case": "Static"}, {"Case/Logo": "#0000FF"})
+    lights.tick_animation(50.0)
+    lights.tick_animation(50.2)  # now at (128, 0, 128)
+    lights.apply(True, 100, {"Case": "Static"}, {"Case/Logo": "#000000"})
+    lights.tick_animation(60.0)
+    assert near(device.zones[0].colour, (128, 0, 128))  # no jump back to red or on to blue
+    lights.tick_animation(60.5)
+    assert device.zones[0].colour == (0, 0, 0)
+
+
+def test_turning_the_lights_off_fades_to_black():
+    lights, device = static({})
+    lights.apply(False, 100, {"Case": "Static"}, {})
+    assert lights.animating is True and device.mode == "Direct"
+    lights.tick_animation(1.0)
+    lights.tick_animation(1.5)
+    assert [z.colour for z in device.zones] == [(0, 0, 0)] * 2
+
+
+def test_finish_transitions_jumps_to_the_end():
+    # Used just before sleep, when there is no time for a fade.
+    lights, device = static({"Case/Logo": "#FF0000"})
+    lights.apply(True, 100, {"Case": "Static"}, {"Case/Logo": "#0000FF"})
+    lights.finish_transitions()
+    assert device.zones[0].colour == (0, 0, 255) and lights.animating is False
+
+
+def test_an_unchanged_apply_sends_nothing():
+    lights, device = static({"Case/Logo": "#FF0000"})
+    sent = len(device.frames)
+    lights.apply(True, 100, {"Case": "Static"}, {"Case/Logo": "#FF0000"})
+    assert len(device.frames) == sent and lights.animating is False
+
+
+def test_breathing_colour_change_also_fades():
+    lights, device = breathing(
+        {"Case": EffectOptions(min_brightness=100)}, {"Case/Logo": "#FF0000"}
+    )
+    lights.tick_animation(10.0)
+    lights.apply(
+        True, 100, {"Case": "Breathing"}, {"Case/Logo": "#0000FF"},
+        {"Case": EffectOptions(min_brightness=100)},
+    )  # fmt: skip
+    lights.tick_animation(20.0)
+    lights.tick_animation(20.2)
+    assert near(device.zones[0].colour, (128, 0, 128))

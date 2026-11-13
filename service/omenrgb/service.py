@@ -9,9 +9,10 @@ small status report back for the settings window to display.
 import argparse
 import json
 import logging
+import os
 import signal
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 from gi.repository import Gio, GLib
@@ -20,6 +21,7 @@ from . import constants as c
 from .app_look import AppLooks, Look, load_app_icon
 from .image_prep import prepare_jpeg
 from .lcd_device import LcdDevice, find_hidraw
+from .lcd_fade import fade_frames
 from .lcd_streamer import LcdStreamer
 from .lights import DeviceInfo, EffectOptions, Lights, UniformColours, zone_key
 from .ram import RamLights
@@ -30,7 +32,12 @@ log = logging.getLogger(__name__)
 LCD_IMAGE_KEYS = ("lcd-image", "lcd-fit")
 LCD_BRIGHTNESS_KEYS = ("lcd-enabled", "lcd-brightness")
 AUTO_KEYS = ("auto-enabled", "auto-lights", "auto-lcd", "focused-app")
-LIGHTS_DEBOUNCE_MS = 250
+# Changes arriving within this time of each other are sent as one. It only
+# needs to cover a slider being dragged; fades hide the rest.
+LIGHTS_DEBOUNCE_MS = 40
+LCD_FADE_STEPS = 8  # frames in a crossfade between two LCD pictures
+LCD_FADE_INTERVAL_MS = 45  # time between those frames (about 0.36 s in all)
+SLEEP_WAIT_S = 3.0  # how long to wait for the RAM to go dark before sleeping
 ANIMATION_INTERVAL_MS = 33  # about 30 frames a second while an effect is animated
 LIGHT_KEYS = (
     "lights-enabled",
@@ -53,6 +60,7 @@ class Service:
         ram: RamLights | None = None,
         display_names: dict[str, str] | None = None,
         looks: AppLooks | None = None,
+        fade: Callable[[bytes | None, bytes | None, int], Iterator[bytes]] | None = None,
     ):
         self._settings = settings
         self._streamer = streamer
@@ -65,6 +73,11 @@ class Service:
         self._sent_auto_colour: str | None = None  # auto colour last sent to the lights
         self._own_jpeg: bytes | None = None  # the owner's chosen picture, LCD-ready
         self._shown_jpeg: bytes | None = None  # what the LCD was last told to show
+        self._target_jpeg: bytes | None = None  # the picture it should end up showing
+        self._fade = fade  # makes crossfade frames; None switches pictures at once
+        self._fade_iter: Iterator[bytes] | None = None  # frames of a running fade
+        self._fade_timer = 0
+        self._asleep = False  # between "going to sleep" and "woke up"
         self._lights_timer = 0  # GLib timer id while a lights update is waiting
         self._animation_timer = 0  # GLib timer id while an effect is being animated
         self._image_monitor = None  # watches the chosen LCD image file
@@ -99,10 +112,10 @@ class Service:
         for source in self._sources:
             GLib.source_remove(source)
         self._sources = []
-        for timer in (self._lights_timer, self._animation_timer):
+        for timer in (self._lights_timer, self._animation_timer, self._fade_timer):
             if timer:
                 GLib.source_remove(timer)
-        self._lights_timer = self._animation_timer = 0
+        self._lights_timer = self._animation_timer = self._fade_timer = 0
         self._watch_image_file(None)
         if self._handler:
             self._settings.disconnect(self._handler)
@@ -189,10 +202,28 @@ class Service:
         self._show_lcd_image()
         self.publish_status()
 
+    def on_sleep(self) -> None:
+        """The computer is about to sleep: switch the LCD and all lights off.
+
+        There are only a few seconds before it sleeps, so nothing fades.
+        """
+        log.info("Going to sleep; switching LCD and lights off")
+        self._asleep = True
+        self.finish_lcd_fade()
+        self._update_lcd_brightness()
+        self._streamer.tick_claim()  # sends the new brightness now
+        self.flush_lights()
+        self._lights.finish_transitions()
+        if self._ram:
+            self._ram.wait_idle(SLEEP_WAIT_S)
+
     def on_resume(self) -> None:
-        """The computer woke from sleep: the hardware may have forgotten its
-        settings, so send them all again."""
-        log.info("Woke from sleep; re-applying lights")
+        """The computer woke from sleep: switch everything back on. The
+        hardware may have forgotten its settings, so send them all again."""
+        log.info("Woke from sleep; restoring LCD and lights")
+        self._asleep = False
+        self._update_lcd_brightness()
+        self._streamer.tick_claim()
         self._lights.forget()
         if self._ram:
             self._ram.forget()
@@ -223,12 +254,59 @@ class Service:
         """Put the right picture on the LCD: auto mode's, else the owner's."""
         auto = self._auto_lcd()
         picture = auto if auto is not None else self._own_jpeg
-        if picture != self._shown_jpeg:
+        if picture == self._target_jpeg:
+            return
+        self._target_jpeg = picture
+        if self._fade is None:
             self._shown_jpeg = picture
             self._streamer.set_image(picture)
+            self._streamer.tick_frame()  # now, not at the next half-second tick
+            return
+        # Crossfade from whatever is on screen at this moment.
+        self._fade_iter = self._fade(self._shown_jpeg, picture, LCD_FADE_STEPS)
+        self.tick_lcd_fade()
+        if self._fade_iter is not None and not self._fade_timer:
+            self._fade_timer = GLib.timeout_add(LCD_FADE_INTERVAL_MS, self._on_fade_timer)
+
+    @property
+    def lcd_fading(self) -> bool:
+        return self._fade_iter is not None
+
+    def _on_fade_timer(self) -> bool:
+        self._repeat(self.tick_lcd_fade)
+        if self._fade_iter is None:
+            self._fade_timer = 0
+            return False  # fade finished: stop the timer
+        return True
+
+    def tick_lcd_fade(self) -> None:
+        """Show the next frame of a running crossfade."""
+        if self._fade_iter is None:
+            return
+        try:
+            frame = next(self._fade_iter, None)
+        except Exception as error:
+            log.warning("LCD fade failed: %s", error)
+            frame = None
+        if frame is None:
+            self._fade_iter = None
+            if self._shown_jpeg != self._target_jpeg:
+                # Either the fade failed, or there is no picture any more
+                # (None lets the LCD go back to its own logo).
+                self._shown_jpeg = self._target_jpeg
+                self._streamer.set_image(self._target_jpeg)
+            return
+        self._shown_jpeg = frame
+        self._streamer.set_image(frame)
+        self._streamer.tick_frame()
+
+    def finish_lcd_fade(self) -> None:
+        """Run a crossfade straight to its end."""
+        while self._fade_iter is not None:
+            self.tick_lcd_fade()
 
     def _update_lcd_brightness(self) -> None:
-        enabled = self._settings.get_boolean("lcd-enabled")
+        enabled = self._settings.get_boolean("lcd-enabled") and not self._asleep
         self._streamer.set_brightness(self._settings.get_int("lcd-brightness") if enabled else 0)
 
     def _update_lights(self) -> None:
@@ -249,11 +327,18 @@ class Service:
         """Run the fast animation timer only while something is animated."""
         if self._lights.animating and not self._animation_timer:
             self._animation_timer = GLib.timeout_add(
-                ANIMATION_INTERVAL_MS, self._repeat, self._tick_animation
+                ANIMATION_INTERVAL_MS, self._on_animation_timer
             )
         elif not self._lights.animating and self._animation_timer:
             GLib.source_remove(self._animation_timer)
             self._animation_timer = 0
+
+    def _on_animation_timer(self) -> bool:
+        self._repeat(self._tick_animation)
+        if not self._lights.animating:
+            self._animation_timer = 0
+            return False  # fade finished and nothing is breathing: stop the timer
+        return True
 
     def _tick_animation(self) -> None:
         self._lights.tick_animation(time.monotonic())
@@ -277,7 +362,7 @@ class Service:
             for name in {*speeds, *dimmest, *brightest}
         }
         return (
-            self._settings.get_boolean("lights-enabled"),
+            self._settings.get_boolean("lights-enabled") and not self._asleep,
             self._settings.get_int("lights-brightness"),
             setting("device-modes"),
             UniformColours(auto) if (auto := self._auto_colour()) else setting("zone-colours"),
@@ -382,28 +467,62 @@ def _connect_openrgb():
 RESUME_SETTLE_S = 3  # give USB devices a moment to come back after sleep
 
 
-def _watch_for_resume(service: Service) -> Gio.DBusConnection | None:
-    """Call service.on_resume() whenever the computer wakes from sleep.
+def _watch_for_sleep(service: Service) -> Gio.DBusConnection | None:
+    """Call service.on_sleep() just before the computer sleeps and
+    service.on_resume() after it wakes.
 
     The caller must keep the returned connection for as long as it wants the
     notifications: GLib drops the connection, and the subscription with it,
     once nothing refers to it any more.
     """
-
-    def on_signal(_bus, _sender, _path, _iface, _signal, parameters) -> None:
-        (going_to_sleep,) = parameters.unpack()
-        if not going_to_sleep:
-            GLib.timeout_add_seconds(RESUME_SETTLE_S, _once, service.on_resume)
-
-    def _once(callback) -> bool:
-        Service._repeat(callback)
-        return False
-
     try:
         bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
     except GLib.Error as error:
         log.warning("Cannot watch for sleep/resume: %s", error)
         return None
+
+    # While we hold this "delay" lock, the system waits (a few seconds at
+    # most) before sleeping, which gives us time to switch the lights off.
+    lock: list[int] = []  # the lock's file descriptor, when held
+
+    def take_lock() -> None:
+        try:
+            reply, fds = bus.call_with_unix_fd_list_sync(
+                "org.freedesktop.login1",
+                "/org/freedesktop/login1",
+                "org.freedesktop.login1.Manager",
+                "Inhibit",
+                GLib.Variant(
+                    "(ssss)",
+                    ("sleep", "OMEN Lights", "Switch the lights off before sleep", "delay"),
+                ),
+                GLib.VariantType("(h)"),
+                Gio.DBusCallFlags.NONE,
+                -1,
+                None,
+                None,
+            )
+            lock.append(fds.get(reply.unpack()[0]))
+        except GLib.Error as error:
+            log.warning("Cannot delay sleep; lights may stay on: %s", error)
+
+    def release_lock() -> None:
+        while lock:
+            os.close(lock.pop())
+
+    def woke_up() -> bool:
+        Service._repeat(service.on_resume)
+        return False  # one-shot timer
+
+    def on_signal(_bus, _sender, _path, _iface, _signal, parameters) -> None:
+        (going_to_sleep,) = parameters.unpack()
+        if going_to_sleep:
+            Service._repeat(service.on_sleep)
+            release_lock()  # done: the system may sleep now
+        else:
+            take_lock()
+            GLib.timeout_add_seconds(RESUME_SETTLE_S, woke_up)
+
     bus.signal_subscribe(
         "org.freedesktop.login1",
         "org.freedesktop.login1.Manager",
@@ -413,6 +532,7 @@ def _watch_for_resume(service: Service) -> Gio.DBusConnection | None:
         Gio.DBusSignalFlags.NONE,
         on_signal,
     )
+    take_lock()
     return bus
 
 
@@ -443,15 +563,16 @@ def main(argv: list[str] | None = None) -> int:
         settings,
         LcdStreamer(_open_lcd),
         Lights(_connect_openrgb, c.HIDDEN_ZONES, c.LED_GAMMA),
-        ram=RamLights(gamma=c.LED_GAMMA),
+        ram=RamLights(gamma=c.LED_GAMMA, background=True),
         display_names=c.DISPLAY_NAMES,
         looks=AppLooks(load_app_icon, ignore=c.AUTO_IGNORED_APPS),
+        fade=fade_frames,
     )
     loop = GLib.MainLoop()
     for signum in (signal.SIGINT, signal.SIGTERM):
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, loop.quit)
     service.start()
-    system_bus = _watch_for_resume(service)  # kept alive until we exit
+    system_bus = _watch_for_sleep(service)  # kept alive until we exit
     log.info("omenrgb service running")
     loop.run()
     del system_bus

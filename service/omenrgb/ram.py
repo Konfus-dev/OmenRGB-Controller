@@ -12,6 +12,7 @@ KingstonFuryDRAMController.
 
 import logging
 import socket
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -184,7 +185,14 @@ def send_to_helper(batch: list[Command], path: str = HELPER_SOCKET) -> None:
 
 
 class RamLights:
-    """The RAM sticks, presented like any other lighting device."""
+    """The RAM sticks, presented like any other lighting device.
+
+    Every write goes through the BIOS and takes about 65 ms, so two things
+    keep it quick: only registers whose value has changed are sent, and with
+    background=True the sending happens on a worker thread, where it cannot
+    hold up the LCD or the case lights. If requests arrive faster than they
+    can be sent, the newest one wins.
+    """
 
     def __init__(
         self,
@@ -192,6 +200,7 @@ class RamLights:
         find: Callable[[], list[int]] = find_sticks,
         gamma: float = 1.0,
         clock: Callable[[], float] = time.monotonic,
+        background: bool = False,
     ):
         self._send = send
         self._find = find
@@ -199,7 +208,21 @@ class RamLights:
         self._clock = clock
         self._retry_at = 0.0  # do not contact the helper before this time
         self._sticks: list[int] = []
-        self._last_sent: list[Command] | None = None
+
+        # What we believe each stick's registers hold: {stick: {register: value}}.
+        self._registers: dict[int, dict[int, int]] = {}
+        self._epoch = 0  # bumped whenever that belief is thrown away
+
+        # Background sending. The lock guards everything below it and the
+        # two fields above; the worker thread is started on first use.
+        self._background = background
+        self._lock = threading.Lock()
+        self._wanted: list[Command] | None = None  # newest request not yet sent
+        self._wake = threading.Event()
+        self._idle = threading.Event()
+        self._idle.set()
+        self._failed = False  # set by the worker, handled by check()
+        self._worker: threading.Thread | None = None
 
     @property
     def connected(self) -> bool:
@@ -221,7 +244,7 @@ class RamLights:
             self._back_off()
             return False
         self._sticks = sticks
-        self._last_sent = None
+        self.forget()
         log.info("RAM lights connected, %d stick(s)", len(sticks))
         return True
 
@@ -233,10 +256,25 @@ class RamLights:
 
         Used after sleep, when the sticks may have lost their settings.
         """
-        self._last_sent = None
+        with self._lock:
+            self._registers = {}
+            self._epoch += 1
 
     def check(self) -> bool:
+        """False once a send has failed; the caller then reconnects later."""
+        if self._failed:
+            self._failed = False
+            self._disconnect()
         return self.connected
+
+    def _disconnect(self) -> None:
+        self._sticks = []  # reconnect and resend later
+        self.forget()
+        self._back_off()
+
+    def wait_idle(self, timeout_s: float) -> bool:
+        """Wait until nothing is waiting to be sent (used before sleep)."""
+        return self._idle.wait(timeout_s)
 
     def devices(self) -> list[DeviceInfo]:
         if not self._sticks:
@@ -275,7 +313,7 @@ class RamLights:
             for i in range(len(self._sticks))
         ]
         extra = (options or {}).get(DEVICE_NAME, EffectOptions())
-        batch = commands(
+        wanted = commands(
             mode,
             brightness,
             [] if mode == "Off" else per_stick,
@@ -284,13 +322,56 @@ class RamLights:
             min_brightness=extra.min_brightness,
             max_brightness=extra.max_brightness,
         )
-        if batch == self._last_sent:
-            return  # nothing changed; do not bother the BIOS
+        if not self._background:
+            if not self._send_changes(wanted):
+                self._disconnect()
+            return
+        with self._lock:
+            self._wanted = wanted
+            self._idle.clear()
+        if self._worker is None:
+            self._worker = threading.Thread(target=self._work, name="ram-lights", daemon=True)
+            self._worker.start()
+        self._wake.set()
+
+    def _work(self) -> None:
+        """Worker thread: send the newest request, then wait for the next."""
+        while True:
+            self._wake.wait()
+            self._wake.clear()
+            while True:
+                with self._lock:
+                    wanted, self._wanted = self._wanted, None
+                    if wanted is None:
+                        self._idle.set()
+                        break
+                if not self._send_changes(wanted):
+                    self._failed = True  # check() will disconnect and back off
+
+    def _send_changes(self, wanted: list[Command]) -> bool:
+        """Send the writes in `wanted` that differ from what the sticks hold.
+
+        Returns False if sending failed.
+        """
+        with self._lock:
+            epoch = self._epoch
+            changes = [
+                (stick, register, value)
+                for stick, register, value in wanted
+                if register != REG_TRANSFER
+                and self._registers.get(stick, {}).get(register) != value
+            ]
+        if not changes:
+            return True  # nothing changed; do not bother the BIOS
+        begin = [(stick, REG_TRANSFER, TRANSFER_BEGIN) for stick in self._sticks]
+        end = [(stick, REG_TRANSFER, TRANSFER_END) for stick in self._sticks]
         try:
-            self._send(batch)
+            self._send(begin + changes + end)
         except OSError as error:
             log.warning("Could not set RAM lights: %s", error)
-            self._sticks = []  # reconnect and resend later
-            self._back_off()
-            return
-        self._last_sent = batch
+            return False
+        with self._lock:
+            if epoch == self._epoch:  # nobody called forget() meanwhile
+                for stick, register, value in changes:
+                    self._registers.setdefault(stick, {})[register] = value
+        return True

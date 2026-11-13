@@ -27,10 +27,10 @@ class FakeStreamer:
         self.reconnect_ticks += 1
 
     def tick_claim(self):
-        pass
+        self.claim_ticks = getattr(self, "claim_ticks", 0) + 1
 
     def tick_frame(self):
-        pass
+        self.frame_ticks = getattr(self, "frame_ticks", 0) + 1
 
 
 class FakeLights:
@@ -52,6 +52,13 @@ class FakeLights:
 
     def forget(self):
         pass
+
+    def finish_transitions(self):
+        self.finished = True
+
+    def wait_idle(self, timeout_s):
+        self.waited = True
+        return True
 
     def tick_animation(self, now):
         self.animation_ticks = getattr(self, "animation_ticks", 0) + 1
@@ -544,3 +551,97 @@ def test_resume_also_makes_the_case_lights_start_over(parts):
     lights.forget = lambda: setattr(lights, "forgotten", True)
     service.on_resume()
     assert lights.forgotten is True
+
+
+# --- sleep ----------------------------------------------------------------------
+
+
+def test_going_to_sleep_turns_everything_off_without_delay(with_ram):
+    service, _settings, ram = with_ram
+    service.start()
+    streamer, lights = service._streamer, service._lights
+    service.on_sleep()
+    assert streamer.brightness[-1] == 0 and streamer.claim_ticks >= 1  # sent now, not on a timer
+    assert lights.applied[-1][0] is False and lights.finished is True  # off, no slow fade
+    assert ram.applied[-1][0] is False and ram.waited is True  # off, and really sent
+
+
+def test_waking_up_turns_everything_back_on(with_ram):
+    service, settings, ram = with_ram
+    service.start()
+    service.on_sleep()
+    service.on_resume()
+    assert service._streamer.brightness[-1] == settings.get_int("lcd-brightness")
+    assert service._lights.applied[-1][0] is True and ram.applied[-1][0] is True
+
+
+def test_settings_changed_while_asleep_do_not_switch_the_lights_on(with_ram):
+    service, settings, ram = with_ram
+    service.start()
+    service.on_sleep()
+    settings.set_int("lights-brightness", 40)
+    service.on_changed("lights-brightness")
+    service.flush_lights()
+    assert ram.applied[-1][0] is False
+
+
+# --- the LCD fades from one picture to the next ---------------------------------
+
+
+def fake_fade(old, new, steps):
+    yield b"fade 1"
+    yield b"fade 2"
+    yield new if new is not None else b"black"
+
+
+@pytest.fixture
+def fading(settings):
+    settings.set_string("lcd-image", "/pics/cat.png")
+    streamer = FakeStreamer()
+    service = Service(settings, streamer, FakeLights(), FakePrepare(), fade=fake_fade)
+    service.start()
+    service.finish_lcd_fade()
+    streamer.images.clear()
+    yield service, settings, streamer
+    service.stop()
+
+
+def test_a_new_picture_fades_in_frame_by_frame(fading):
+    service, settings, streamer = fading
+    settings.set_string("lcd-image", "/pics/dog.png")
+    service.on_changed("lcd-image")
+    assert service.lcd_fading is True
+    assert streamer.images == [b"fade 1"]  # the first frame goes out at once
+    before = streamer.frame_ticks
+    service.tick_lcd_fade()
+    assert streamer.images == [b"fade 1", b"fade 2"] and streamer.frame_ticks == before + 1
+    service.tick_lcd_fade()
+    assert streamer.images[-1] == b"jpeg of dog.png (fill)"
+    service.tick_lcd_fade()
+    assert service.lcd_fading is False and len(streamer.images) == 3
+
+
+def test_a_change_during_a_fade_starts_again_from_what_is_showing(fading):
+    service, settings, streamer = fading
+    seen = []
+
+    def recording_fade(old, new, steps):
+        seen.append(old)
+        yield new
+
+    settings.set_string("lcd-image", "/pics/dog.png")
+    service.on_changed("lcd-image")  # now showing b"fade 1"
+    service._fade = recording_fade
+    settings.set_string("lcd-image", "/pics/bird.png")
+    service.on_changed("lcd-image")
+    assert seen == [b"fade 1"]
+    service.finish_lcd_fade()
+    assert streamer.images[-1] == b"jpeg of bird.png (fill)"
+
+
+def test_removing_the_picture_fades_out_then_lets_the_logo_return(fading):
+    service, settings, streamer = fading
+    settings.set_string("lcd-image", "")
+    service.on_changed("lcd-image")
+    service.finish_lcd_fade()
+    assert streamer.images[-2] == b"black" and streamer.images[-1] is None

@@ -57,7 +57,9 @@ and must not be written to.
 
 The screen stores nothing; without a stream of frames it returns to the
 OMEN logo. The service re-sends the current image every 500 ms, the rate
-HP's software uses for a still picture. Confirmed on firmware V3.05.024.
+HP's software uses for a still picture. When the picture changes, a short
+burst of blended frames crossfades from the old one to the new
+(`lcd_fade.py`). Confirmed on firmware V3.05.024.
 
 Protocol facts are from the notes in
 [omen-led-lcd](https://github.com/Xedecimal/omen-led-lcd); none of its code
@@ -74,11 +76,19 @@ OpenRGB runs with its own configuration folder in which every detector
 except that one is switched off (`openrgb_config.py`). Its normal RAM
 probing is what jams the RAM bus.
 
-Breathing is not left to the board. Its built-in breathing always fades to
-black and has three fixed speeds, so the service puts the board in "Direct"
-mode and sends a smoothly changing brightness about 30 times a second
-(`lights.breath_level`). That is what makes the speed, dimmest and brightest
-sliders work. The fast timer only runs while something is breathing.
+Plain colours and breathing are not left to the board. The service puts it
+in "Direct" mode, where it shows whatever colours it is sent, and draws them
+itself (`lights._Glow`):
+
+- A colour change glides from the old colours to the new over 0.4 s.
+- Breathing is a smoothly changing brightness (`lights.breath_level`), which
+  is what makes the speed, dimmest and brightest sliders work. The board's
+  own breathing always fades to black and has three fixed speeds.
+
+Frames go out about 30 times a second, but only while something is fading
+or breathing; the fast timer stops itself otherwise, so a steady colour
+costs nothing. The board's other effects (Wave, Color Cycle, ...) are still
+its own.
 
 ## RAM lights
 
@@ -107,6 +117,12 @@ password prompt per change (unusable). The helper:
 Register meanings come from HP's module and from OpenRGB's
 `KingstonFuryDRAMController`.
 
+Each write takes about 65 ms through the BIOS, so `ram.py` remembers what
+every register holds and sends only the ones that changed, on a worker
+thread, newest request wins. A colour change is then about ten writes
+instead of forty, and never delays the LCD or the case lights. The RAM
+cannot fade smoothly at that speed; it switches in one step.
+
 ## Auto mode
 
 Optional. The extension writes the focused app's id (for example
@@ -119,10 +135,11 @@ replaces every zone colour and the picture replaces the chosen LCD image
 until focus moves on. Apps with no usable icon, and this project's own
 settings window, fall back to the normal settings.
 
-## After sleep
+## Sleep
 
-The service listens for logind's "woke from sleep" signal and sends all
-light settings again, in case the hardware lost them.
+The service holds a logind "delay" lock. Just before the computer sleeps it
+turns the LCD, case lights and RAM off, then releases the lock. After
+waking it sends every setting again, in case the hardware lost them.
 
 ## Settings
 
