@@ -18,7 +18,7 @@ def check(data):
 
 
 def close(pixel, colour, tolerance=12):
-    return all(abs(a - b) <= tolerance for a, b in zip(pixel, colour))
+    return all(abs(a - b) <= tolerance for a, b in zip(pixel, colour, strict=True))
 
 
 def save(tmp_path, image, name="in.png", **kwargs):

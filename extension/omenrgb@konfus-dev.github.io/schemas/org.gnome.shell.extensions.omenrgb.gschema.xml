@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!--
+  Settings shared by the GNOME Shell extension (which writes them) and the
+  background service (which acts on them). After editing this file, run
+  install/install-user.sh again.
+-->
+<schemalist>
+  <schema id="org.gnome.shell.extensions.omenrgb" path="/org/gnome/shell/extensions/omenrgb/">
+
+    <key name="lights-enabled" type="b">
+      <default>true</default>
+      <summary>Case lights on or off</summary>
+    </key>
+    <key name="lights-brightness" type="i">
+      <range min="0" max="100"/>
+      <default>100</default>
+      <summary>Case light brightness, percent</summary>
+    </key>
+    <key name="device-modes" type="a{ss}">
+      <default>{}</default>
+      <summary>Lighting effect per device</summary>
+      <description>Maps a device name to an effect name, e.g. {'HP Omen 30L': 'Static'}.</description>
+    </key>
+    <key name="zone-colours" type="a{ss}">
+      <default>{}</default>
+      <summary>Colour per light zone</summary>
+      <description>Maps "Device name/Zone name" to "#RRGGBB".</description>
+    </key>
+
+    <key name="lcd-enabled" type="b">
+      <default>true</default>
+      <summary>Cooler LCD on or off (off shows a black screen)</summary>
+    </key>
+    <key name="lcd-brightness" type="i">
+      <range min="0" max="100"/>
+      <default>80</default>
+      <summary>Cooler LCD brightness, percent</summary>
+    </key>
+    <key name="lcd-image" type="s">
+      <default>''</default>
+      <summary>Image shown on the cooler LCD</summary>
+      <description>Absolute path. Empty leaves the built-in OMEN logo.</description>
+    </key>
+    <key name="lcd-fit" type="s">
+      <choices>
+        <choice value="fill"/>
+        <choice value="fit"/>
+      </choices>
+      <default>'fill'</default>
+      <summary>fill crops the image to cover the screen; fit shows all of it with black bars</summary>
+    </key>
+    <key name="lcd-recent-images" type="as">
+      <default>[]</default>
+      <summary>Recently used LCD images, newest first, at most 8</summary>
+    </key>
+
+    <key name="status" type="s">
+      <default>'{}'</default>
+      <summary>Written by the service only</summary>
+      <description>JSON: {"lcd": bool, "openrgb": bool, "error": str, "devices": [{"name": str, "modes": [str], "zones": [str]}]}</description>
+    </key>
+
+  </schema>
+</schemalist>

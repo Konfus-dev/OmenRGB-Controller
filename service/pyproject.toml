@@ -22,3 +22,8 @@ line-length = 100
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning:gi.overrides"]
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, import order, likely bugs, modern syntax.
+select = ["E", "F", "I", "B", "UP"]
