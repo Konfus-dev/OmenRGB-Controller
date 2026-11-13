@@ -14,7 +14,9 @@ import Gtk from 'gi://Gtk';
 
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-const MAX_RECENT_IMAGES = 8;
+const MAX_RECENT_IMAGES = 8; // how many are remembered
+const RECENT_IMAGES_SHOWN = 6; // how many thumbnails fit in the window
+const THUMBNAIL_SIZE = 64;
 const DEFAULT_COLOUR = '#FFFFFF';
 const DEFAULT_MODE = 'Static';
 const FIT_VALUES = ['fill', 'fit'];
@@ -160,6 +162,42 @@ function buildLcdPage(settings, window) {
     });
     clearButton.connect('clicked', () => settings.set_string('lcd-image', ''));
 
+    // Recently used images: click one to show it again.
+    const recentBox = new Gtk.Box({
+        spacing: 8,
+        halign: Gtk.Align.CENTER,
+        margin_top: 8,
+        margin_bottom: 8,
+    });
+    const recentRow = new Adw.PreferencesRow({activatable: false});
+    recentRow.set_child(recentBox);
+    group.add(recentRow);
+
+    const rebuildRecent = () => {
+        let child;
+        while ((child = recentBox.get_first_child()))
+            recentBox.remove(child);
+        const recent = settings.get_strv('lcd-recent-images').slice(0, RECENT_IMAGES_SHOWN);
+        recentRow.visible = recent.length > 1;
+        for (const path of recent) {
+            const thumbnail = new Gtk.Picture({
+                width_request: THUMBNAIL_SIZE,
+                height_request: THUMBNAIL_SIZE,
+                can_shrink: true,
+                content_fit: Gtk.ContentFit.COVER,
+            });
+            thumbnail.set_filename(path);
+            const button = new Gtk.Button({
+                child: thumbnail,
+                tooltip_text: GLib.path_get_basename(path),
+                overflow: Gtk.Overflow.HIDDEN,
+            });
+            button.add_css_class('flat');
+            button.connect('clicked', () => settings.set_string('lcd-image', path));
+            recentBox.append(button);
+        }
+    };
+
     // Fill or fit.
     const fitRow = new Adw.ComboRow({title: 'Fit', model: Gtk.StringList.new(FIT_LABELS)});
     fitRow.selected = Math.max(0, FIT_VALUES.indexOf(settings.get_string('lcd-fit')));
@@ -194,6 +232,8 @@ function buildLcdPage(settings, window) {
     };
     const ids = ['lcd-image', 'lcd-fit', 'status'].map(
         key => settings.connect(`changed::${key}`, refresh));
+    ids.push(settings.connect('changed::lcd-recent-images', rebuildRecent));
+    rebuildRecent();
     window.connect('close-request', () => {
         ids.forEach(id => settings.disconnect(id));
         return false;
