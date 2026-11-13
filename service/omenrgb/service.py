@@ -19,7 +19,7 @@ from . import constants as c
 from .image_prep import ImageError, prepare_jpeg
 from .lcd_device import LcdDevice, find_hidraw
 from .lcd_streamer import LcdStreamer
-from .lights import Lights
+from .lights import DeviceInfo, Lights, zone_key
 from .ram import RamLights
 from .settings import load_settings
 
@@ -39,12 +39,14 @@ class Service:
         lights: Lights,
         prepare: Callable[[Path, str], bytes] = prepare_jpeg,
         ram: RamLights | None = None,
+        display_names: dict[str, str] | None = None,
     ):
         self._settings = settings
         self._streamer = streamer
         self._lights = lights
         self._prepare = prepare
         self._ram = ram  # None on machines without controllable RAM lights
+        self._display_names = display_names or {}
         self._ram_timer = 0  # GLib timer id while a RAM update is waiting
         self._error = ""  # last image problem, shown in the settings window
         self._sources: list[int] = []  # GLib timer ids, so stop() can remove them
@@ -163,6 +165,23 @@ class Service:
             self.flush_ram()
         self.publish_status()
 
+    def _describe(self, device: DeviceInfo) -> dict:
+        """One lighting device as the settings window needs it.
+
+        "name" and "zones" are the real names, used as keys when saving.
+        "label" and "zone_labels" are what a person should read.
+        """
+        names = self._display_names
+        return {
+            "name": device.name,
+            "label": names.get(device.name, device.name),
+            "modes": list(device.modes),
+            "default_mode": device.default_mode,
+            "colourless_modes": list(device.colourless_modes),
+            "zones": list(device.zones),
+            "zone_labels": [names.get(zone_key(device.name, zone), zone) for zone in device.zones],
+        }
+
     def publish_status(self) -> None:
         """Tell the settings window what we found. Only writes on change."""
         status = json.dumps(
@@ -172,8 +191,9 @@ class Service:
                 "ram": bool(self._ram and self._ram.connected),
                 "error": self._error,
                 "devices": [
-                    {"name": d.name, "modes": list(d.modes), "zones": list(d.zones)}
-                    for d in self._lights.devices() + (self._ram.devices() if self._ram else [])
+                    self._describe(device)
+                    for device in self._lights.devices()
+                    + (self._ram.devices() if self._ram else [])
                 ],
             }
         )
@@ -216,7 +236,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     service = Service(
-        settings, LcdStreamer(_open_lcd), Lights(_connect_openrgb, c.HIDDEN_ZONES), ram=RamLights()
+        settings,
+        LcdStreamer(_open_lcd),
+        Lights(_connect_openrgb, c.HIDDEN_ZONES),
+        ram=RamLights(),
+        display_names=c.DISPLAY_NAMES,
     )
     loop = GLib.MainLoop()
     for signum in (signal.SIGINT, signal.SIGTERM):

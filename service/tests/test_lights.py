@@ -23,8 +23,13 @@ class FakeDevice:
         """`palettes` maps a mode name to how many colours its palette has."""
         palettes = palettes or {}
         self.name = name
+        # color_mode mirrors OpenRGB: 0 = the effect takes no colours.
         self.modes = [
-            SimpleNamespace(name=m, colors=[None] * palettes[m] if m in palettes else None)
+            SimpleNamespace(
+                name=m,
+                colors=[None] * palettes[m] if m in palettes else None,
+                color_mode=0 if m == "Off" else 1,
+            )
             for m in modes
         ]
         self.zones = [FakeZone(z) for z in zones]
@@ -69,7 +74,13 @@ def test_zone_key():
 def test_devices_lists_modes_and_zones():
     lights = make(case())
     assert lights.devices() == [
-        DeviceInfo("Case", ("Direct", "Static", "Off", "Breathing"), ("Logo", "Top Fan"))
+        DeviceInfo(
+            "Case",
+            ("Direct", "Static", "Off", "Breathing"),
+            ("Logo", "Top Fan"),
+            default_mode="Static",
+            colourless_modes=("Off",),
+        )
     ]
 
 
@@ -202,7 +213,7 @@ def hidden_setup():
 
 def test_hidden_zones_are_not_listed():
     lights, _device = hidden_setup()
-    assert lights.devices() == [DeviceInfo("Case", ("Static", "Breathing"), ("Logo", "Fan"))]
+    assert lights.devices()[0].zones == ("Logo", "Fan")
 
 
 def test_hidden_zones_are_not_written():

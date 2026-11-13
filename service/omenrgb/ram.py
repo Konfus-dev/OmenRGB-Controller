@@ -26,6 +26,7 @@ SPD_DRIVER_NAME = "spd5118"  # the kernel's name for a DDR5 stick's info chip
 DEVICE_NAME = "RAM"
 MODES = ("Static", "Rainbow", "Breathing")
 DEFAULT_MODE = "Rainbow"  # what the sticks do out of the box
+COLOURLESS_MODES = ("Rainbow",)  # effects that ignore the per-stick colours
 
 # --- registers -----------------------------------------------------------------
 REG_TRANSFER = 0x08  # every change is wrapped in begin ... end
@@ -194,7 +195,15 @@ class RamLights:
         if not self._sticks:
             return []
         zones = tuple(f"Stick {i + 1}" for i in range(len(self._sticks)))
-        return [DeviceInfo(DEVICE_NAME, MODES, zones)]
+        return [
+            DeviceInfo(
+                DEVICE_NAME,
+                MODES,
+                zones,
+                default_mode=DEFAULT_MODE,
+                colourless_modes=COLOURLESS_MODES,
+            )
+        ]
 
     def apply(
         self, enabled: bool, brightness: int, modes: dict[str, str], colours: dict[str, str]

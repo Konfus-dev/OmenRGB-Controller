@@ -51,7 +51,15 @@ class FakeLights:
     def devices(self):
         if not self.connected:
             return []
-        return [DeviceInfo(self.name, ("Static", "Off"), ("Logo", "Top Fan"))]
+        return [
+            DeviceInfo(
+                self.name,
+                ("Static", "Off"),
+                ("Logo", "Top Fan"),
+                default_mode="Static",
+                colourless_modes=("Off",),
+            )
+        ]
 
     def apply(self, enabled, brightness, modes, colours):
         self.applied.append((enabled, brightness, modes, colours))
@@ -94,7 +102,17 @@ def test_start_applies_everything_once(parts):
         "openrgb": True,
         "ram": False,
         "error": "",
-        "devices": [{"name": "Case", "modes": ["Static", "Off"], "zones": ["Logo", "Top Fan"]}],
+        "devices": [
+            {
+                "name": "Case",
+                "label": "Case",
+                "modes": ["Static", "Off"],
+                "default_mode": "Static",
+                "colourless_modes": ["Off"],
+                "zones": ["Logo", "Top Fan"],
+                "zone_labels": ["Logo", "Top Fan"],
+            }
+        ],
     }
 
 
@@ -278,4 +296,20 @@ def test_ram_helper_appearing_later_is_picked_up(settings):
     ram.available = True
     service.tick_slow()
     assert status(settings)["ram"] is True and len(ram.applied) == 1
+    service.stop()
+
+
+def test_status_uses_friendly_names_where_known(settings):
+    service = Service(
+        settings,
+        FakeStreamer(),
+        FakeLights(),
+        FakePrepare(),
+        display_names={"Case": "Case lights", "Case/Top Fan": "Top fan"},
+    )
+    service.start()
+    device = status(settings)["devices"][0]
+    assert device["name"] == "Case" and device["label"] == "Case lights"
+    assert device["zones"] == ["Logo", "Top Fan"]  # real names stay for saving settings
+    assert device["zone_labels"] == ["Logo", "Top fan"]
     service.stop()

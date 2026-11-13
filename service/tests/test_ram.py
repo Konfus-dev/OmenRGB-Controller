@@ -109,7 +109,13 @@ def connected(tmp_path, *spd):
 def test_devices_lists_ram_like_any_other_light(tmp_path):
     ram, _ = connected(tmp_path, 0x51, 0x53)
     assert ram.devices() == [
-        DeviceInfo("RAM", ("Static", "Rainbow", "Breathing"), ("Stick 1", "Stick 2"))
+        DeviceInfo(
+            "RAM",
+            ("Static", "Rainbow", "Breathing"),
+            ("Stick 1", "Stick 2"),
+            default_mode="Rainbow",
+            colourless_modes=("Rainbow",),
+        )
     ]
 
 

@@ -63,6 +63,20 @@ HIDDEN_ZONES = (
     "HP Omen 30L/CPU Cooler",
 )
 
+# Friendlier names for the settings window. Anything not listed here is shown
+# under the name OpenRGB gives it. Keys are "Device name" or
+# "Device name/Zone name".
+DISPLAY_NAMES = {
+    "HP Omen 30L": "Case lights",
+    "HP Omen 30L/Omen Logo": "Front logo",
+    "HP Omen 30L/Front Top Fan": "Top fan",
+    "HP Omen 30L/Front Middle Fan": "Middle fan",
+    "HP Omen 30L/Front Bottom Fan": "Bottom fan",
+    "RAM": "Memory (RAM)",
+    "RAM/Stick 1": "Left stick",
+    "RAM/Stick 2": "Right stick",
+}
+
 # --- Settings shared with the GNOME Shell extension --------------------------
 SCHEMA_ID = "org.gnome.shell.extensions.omenrgb"
 EXTENSION_UUID = "omenrgb@konfus-dev.github.io"

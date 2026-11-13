@@ -45,6 +45,8 @@ class DeviceInfo:
     name: str
     modes: tuple[str, ...]
     zones: tuple[str, ...]
+    default_mode: str = ""  # the effect used until the owner picks one
+    colourless_modes: tuple[str, ...] = ()  # effects that ignore the zone colours
 
 
 class Lights:
@@ -103,6 +105,10 @@ class Lights:
                 device.name,
                 tuple(mode.name for mode in device.modes),
                 tuple(zone.name for zone in self._visible_zones(device)),
+                default_mode=DEFAULT_MODE,
+                colourless_modes=tuple(
+                    mode.name for mode in device.modes if _takes_no_colours(mode)
+                ),
             )
             for device in self._client.devices
         ]
@@ -165,6 +171,14 @@ class Lights:
         device.set_mode(mode)
         for zone, colour in zip(zones, zone_colours, strict=True):
             zone.set_color(colour)
+
+
+def _takes_no_colours(mode) -> bool:
+    """OpenRGB marks effects without any colour setting with color_mode 0."""
+    try:
+        return int(getattr(mode, "color_mode", 1)) == 0
+    except (TypeError, ValueError):
+        return False
 
 
 def _disconnect(client) -> None:

@@ -50,17 +50,16 @@ function hexToRgba(hex) {
     return rgba;
 }
 
-/** Read / write one entry of a "dictionary of strings" setting. */
+/** Read one entry, or write several, of a "dictionary of strings" setting. */
 function getEntry(settings, key, name, fallback) {
     return settings.get_value(key).deepUnpack()[name] ?? fallback;
 }
 
-function setEntry(settings, key, name, value) {
+function setEntries(settings, key, entries) {
     const all = settings.get_value(key).deepUnpack();
-    if (all[name] === value)
-        return;
-    all[name] = value;
-    settings.set_value(key, new GLib.Variant('a{ss}', all));
+    if (Object.entries(entries).every(([name, value]) => all[name] === value))
+        return; // nothing new: avoid a pointless write
+    settings.set_value(key, new GLib.Variant('a{ss}', {...all, ...entries}));
 }
 
 /** A row with a 0-100 slider tied to an integer setting. */
@@ -121,7 +120,7 @@ function buildLcdPage(settings, window) {
         margin_bottom: 12,
         overflow: Gtk.Overflow.HIDDEN,
     });
-    preview.add_css_class('card');
+    preview.add_css_class('omen-lcd-preview'); // round, like the real screen
     const previewRow = new Adw.PreferencesRow({activatable: false});
     previewRow.set_child(preview);
     group.add(previewRow);
@@ -245,30 +244,77 @@ function buildLcdPage(settings, window) {
 
 // --- Lights page ----------------------------------------------------------------
 
-/** One group per lighting device: an effect chooser and a colour per zone. */
+/**
+ * One group per lighting device: an effect chooser, an "all" colour and a
+ * colour per zone. `device` comes from the service's status report:
+ *   name, zones            real names, used as keys when saving
+ *   label, zone_labels     what to show
+ *   modes, default_mode    the effects on offer
+ *   colourless_modes       effects that ignore colours (their rows are hidden)
+ */
 function buildDeviceGroup(settings, device) {
-    const group = new Adw.PreferencesGroup({title: device.name});
+    const group = new Adw.PreferencesGroup({title: device.label ?? device.name});
+    const zoneLabels = device.zone_labels ?? device.zones;
+    const colourless = device.colourless_modes ?? [];
+    const zoneKey = zone => `${device.name}/${zone}`;
 
+    // Effect.
     const modeRow = new Adw.ComboRow({title: 'Effect', model: Gtk.StringList.new(device.modes)});
-    const savedMode = getEntry(settings, 'device-modes', device.name, DEFAULT_MODE);
+    const savedMode = getEntry(settings, 'device-modes', device.name,
+        device.default_mode || DEFAULT_MODE);
     modeRow.selected = Math.max(0, device.modes.indexOf(savedMode));
-    modeRow.connect('notify::selected', () =>
-        setEntry(settings, 'device-modes', device.name, device.modes[modeRow.selected]));
     group.add(modeRow);
 
-    for (const zone of device.zones) {
-        const key = `${device.name}/${zone}`;
-        const button = new Gtk.ColorDialogButton({
-            dialog: new Gtk.ColorDialog({with_alpha: false, title: zone}),
-            rgba: hexToRgba(getEntry(settings, 'zone-colours', key, DEFAULT_COLOUR)),
-            valign: Gtk.Align.CENTER,
+    // One colour for everything, for the common case.
+    const colourRows = [];
+    const zoneButtons = [];
+    const colourButton = title => new Gtk.ColorDialogButton({
+        dialog: new Gtk.ColorDialog({with_alpha: false, title}),
+        valign: Gtk.Align.CENTER,
+    });
+
+    if (device.zones.length > 1) {
+        const allButton = colourButton('All');
+        allButton.rgba = hexToRgba(
+            getEntry(settings, 'zone-colours', zoneKey(device.zones[0]), DEFAULT_COLOUR));
+        allButton.connect('notify::rgba', () => {
+            // Save every zone in one go, then update the buttons to match.
+            const hex = rgbaToHex(allButton.rgba);
+            setEntries(settings, 'zone-colours',
+                Object.fromEntries(device.zones.map(zone => [zoneKey(zone), hex])));
+            zoneButtons.forEach(button => {
+                if (rgbaToHex(button.rgba) !== hex)
+                    button.rgba = allButton.rgba;
+            });
         });
+        const allRow = new Adw.ActionRow({title: 'All', subtitle: 'Set every colour below at once'});
+        allRow.add_suffix(allButton);
+        group.add(allRow);
+        colourRows.push(allRow);
+    }
+
+    // A colour per zone.
+    device.zones.forEach((zone, index) => {
+        const button = colourButton(zoneLabels[index] ?? zone);
+        button.rgba = hexToRgba(getEntry(settings, 'zone-colours', zoneKey(zone), DEFAULT_COLOUR));
         button.connect('notify::rgba', () =>
-            setEntry(settings, 'zone-colours', key, rgbaToHex(button.rgba)));
-        const row = new Adw.ActionRow({title: zone});
+            setEntries(settings, 'zone-colours', {[zoneKey(zone)]: rgbaToHex(button.rgba)}));
+        const row = new Adw.ActionRow({title: zoneLabels[index] ?? zone});
         row.add_suffix(button);
         group.add(row);
-    }
+        colourRows.push(row);
+        zoneButtons.push(button);
+    });
+
+    // Colours only matter for effects that use them.
+    const onModeChanged = () => {
+        const mode = device.modes[modeRow.selected];
+        setEntries(settings, 'device-modes', {[device.name]: mode});
+        colourRows.forEach(row => (row.visible = !colourless.includes(mode)));
+    };
+    modeRow.connect('notify::selected', onModeChanged);
+    colourRows.forEach(row => (row.visible = !colourless.includes(savedMode)));
+
     return group;
 }
 
@@ -317,11 +363,22 @@ function buildLightsPage(settings, window) {
     return page;
 }
 
+/** Extra styling for this window only. */
+function loadStyles() {
+    const provider = new Gtk.CssProvider();
+    provider.load_from_string('.omen-lcd-preview { border-radius: 9999px; background: black; }');
+    Gtk.StyleContext.add_provider_for_display(
+        Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
+}
+
 // --- entry point ----------------------------------------------------------------
 
 export default class OmenLightsPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const settings = this.getSettings();
+        loadStyles();
+        window.set_search_enabled(false); // two short pages; nothing to search
+        window.set_default_size(560, 760);
         window.add(buildLcdPage(settings, window));
         window.add(buildLightsPage(settings, window));
     }
