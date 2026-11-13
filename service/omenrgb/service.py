@@ -17,10 +17,11 @@ from pathlib import Path
 from gi.repository import Gio, GLib
 
 from . import constants as c
+from .app_look import AppLooks, Look, load_app_icon
 from .image_prep import prepare_jpeg
 from .lcd_device import LcdDevice, find_hidraw
 from .lcd_streamer import LcdStreamer
-from .lights import DeviceInfo, EffectOptions, Lights, zone_key
+from .lights import DeviceInfo, EffectOptions, Lights, UniformColours, zone_key
 from .ram import RamLights
 from .settings import load_settings
 
@@ -28,6 +29,7 @@ log = logging.getLogger(__name__)
 
 LCD_IMAGE_KEYS = ("lcd-image", "lcd-fit")
 LCD_BRIGHTNESS_KEYS = ("lcd-enabled", "lcd-brightness")
+AUTO_KEYS = ("auto-enabled", "auto-lights", "auto-lcd", "focused-app")
 LIGHTS_DEBOUNCE_MS = 250
 ANIMATION_INTERVAL_MS = 33  # about 30 frames a second while an effect is animated
 LIGHT_KEYS = (
@@ -50,6 +52,7 @@ class Service:
         prepare: Callable[[Path, str], bytes] = prepare_jpeg,
         ram: RamLights | None = None,
         display_names: dict[str, str] | None = None,
+        looks: AppLooks | None = None,
     ):
         self._settings = settings
         self._streamer = streamer
@@ -57,6 +60,8 @@ class Service:
         self._prepare = prepare
         self._ram = ram  # None on machines without controllable RAM lights
         self._display_names = display_names or {}
+        self._looks = looks  # None switches auto mode off entirely
+        self._look: Look | None = None  # what auto mode wants shown right now
         self._lights_timer = 0  # GLib timer id while a lights update is waiting
         self._animation_timer = 0  # GLib timer id while an effect is being animated
         self._image_monitor = None  # watches the chosen LCD image file
@@ -70,6 +75,7 @@ class Service:
     def start(self) -> None:
         """Apply the current settings, then keep everything up to date."""
         self._handler = self._settings.connect("changed", lambda _s, key: self.on_changed(key))
+        self._refresh_look()
         self._update_lcd_image()
         self._update_lcd_brightness()
         self._streamer.tick_reconnect()
@@ -121,6 +127,33 @@ class Service:
             self._update_lcd_brightness()
         elif key in LIGHT_KEYS:
             self._schedule_lights()
+        elif key in AUTO_KEYS:
+            self._refresh_look()
+            self._update_lcd_image()
+            self._schedule_lights()
+            self.publish_status()
+
+    # --- auto mode -------------------------------------------------------------
+
+    def _refresh_look(self) -> None:
+        """Work out what auto mode wants for the app that now has focus."""
+        self._look = None
+        if self._looks and self._settings.get_boolean("auto-enabled"):
+            self._look = self._looks.look_for(self._settings.get_string("focused-app"))
+
+    def _auto_lcd(self) -> bytes | None:
+        """The picture auto mode wants on the LCD, if any."""
+        if self._look and self._settings.get_boolean("auto-lcd"):
+            return self._look.jpeg
+        return None
+
+    def _auto_colour(self) -> str | None:
+        """The colour auto mode wants on the lights, if any."""
+        if self._look and self._settings.get_boolean("auto-lights"):
+            return self._look.colour
+        return None
+
+    # --- LCD ---------------------------------------------------------------------
 
     def _watch_image_file(self, path: str | None) -> None:
         """Notice when the chosen image file is edited or replaced."""
@@ -160,6 +193,9 @@ class Service:
     def _update_lcd_image(self) -> None:
         path = self._settings.get_string("lcd-image")
         self._watch_image_file(path or None)
+        if (auto := self._auto_lcd()) is not None:
+            self._streamer.set_image(auto)  # the focused app's icon
+            return
         if not path:
             self._streamer.set_image(None)
             self._error = ""
@@ -222,7 +258,7 @@ class Service:
             self._settings.get_boolean("lights-enabled"),
             self._settings.get_int("lights-brightness"),
             setting("device-modes"),
-            setting("zone-colours"),
+            UniformColours(auto) if (auto := self._auto_colour()) else setting("zone-colours"),
             options,
         )
 
@@ -291,6 +327,10 @@ class Service:
                 "openrgb": self._lights.connected,
                 "ram": bool(self._ram and self._ram.connected),
                 "error": self._error,
+                "auto": {
+                    "app": self._settings.get_string("focused-app") if self._look else "",
+                    "colour": (self._look.colour or "") if self._look else "",
+                },
                 "devices": [
                     self._describe(device)
                     for device in self._lights.devices()
@@ -377,6 +417,7 @@ def main(argv: list[str] | None = None) -> int:
         Lights(_connect_openrgb, c.HIDDEN_ZONES, c.LED_GAMMA),
         ram=RamLights(gamma=c.LED_GAMMA),
         display_names=c.DISPLAY_NAMES,
+        looks=AppLooks(load_app_icon, ignore=c.AUTO_IGNORED_APPS),
     )
     loop = GLib.MainLoop()
     for signum in (signal.SIGINT, signal.SIGTERM):

@@ -108,6 +108,7 @@ def test_start_applies_everything_once(parts):
         "openrgb": True,
         "ram": False,
         "error": "",
+        "auto": {"app": "", "colour": ""},
         "devices": [
             {
                 "name": "Case",
@@ -406,3 +407,87 @@ def test_resume_from_sleep_sends_everything_again(with_ram):
     before = len(ram.applied)
     service.on_resume()
     assert ram.forgotten is True and len(ram.applied) == before + 1
+
+
+# --- auto mode ----------------------------------------------------------------
+
+
+class FakeLooks:
+    """Stands in for AppLooks: firefox is orange, everything else unknown."""
+
+    def look_for(self, app_id):
+        from omenrgb.app_look import Look
+
+        return Look("#FF8800", b"firefox icon jpeg") if app_id == "firefox.desktop" else None
+
+
+@pytest.fixture
+def auto(settings):
+    settings.set_string("lcd-image", "/pics/cat.png")
+    settings.set_value("zone-colours", GLib.Variant("a{ss}", {"Case/Logo": "#0000FF"}))
+    streamer, lights = FakeStreamer(), FakeLights()
+    service = Service(settings, streamer, lights, FakePrepare(), looks=FakeLooks())
+    service.start()
+    yield service, settings, streamer, lights
+    service.stop()
+
+
+def focus(service, settings, app_id):
+    settings.set_string("focused-app", app_id)
+    service.on_changed("focused-app")
+    service.flush_lights()
+
+
+def test_auto_mode_is_off_by_default(auto):
+    service, settings, streamer, lights = auto
+    focus(service, settings, "firefox.desktop")
+    assert streamer.images[-1] == b"jpeg of cat.png (fill)"
+    assert lights.applied[-1][3] == {"Case/Logo": "#0000FF"}
+
+
+def test_auto_mode_follows_the_focused_app(auto):
+    service, settings, streamer, lights = auto
+    settings.set_boolean("auto-enabled", True)
+    service.on_changed("auto-enabled")
+    focus(service, settings, "firefox.desktop")
+    assert streamer.images[-1] == b"firefox icon jpeg"
+    colours = lights.applied[-1][3]
+    assert colours.get("Case/Logo") == "#FF8800" and colours.get("Anything/Else") == "#FF8800"
+    assert status(settings)["auto"] == {"app": "firefox.desktop", "colour": "#FF8800"}
+
+
+def test_unknown_app_falls_back_to_the_normal_settings(auto):
+    service, settings, streamer, lights = auto
+    settings.set_boolean("auto-enabled", True)
+    focus(service, settings, "firefox.desktop")
+    focus(service, settings, "mystery.desktop")
+    assert streamer.images[-1] == b"jpeg of cat.png (fill)"
+    assert lights.applied[-1][3] == {"Case/Logo": "#0000FF"}
+    assert status(settings)["auto"] == {"app": "", "colour": ""}
+
+
+def test_lights_and_lcd_can_follow_separately(auto):
+    service, settings, streamer, lights = auto
+    settings.set_boolean("auto-enabled", True)
+    settings.set_boolean("auto-lcd", False)
+    focus(service, settings, "firefox.desktop")
+    assert streamer.images[-1] == b"jpeg of cat.png (fill)"
+    assert lights.applied[-1][3].get("Case/Logo") == "#FF8800"
+    settings.set_boolean("auto-lcd", True)
+    settings.set_boolean("auto-lights", False)
+    service.on_changed("auto-lcd")
+    service.on_changed("auto-lights")
+    service.flush_lights()
+    assert streamer.images[-1] == b"firefox icon jpeg"
+    assert lights.applied[-1][3] == {"Case/Logo": "#0000FF"}
+
+
+def test_switching_auto_off_restores_the_normal_look(auto):
+    service, settings, streamer, lights = auto
+    settings.set_boolean("auto-enabled", True)
+    focus(service, settings, "firefox.desktop")
+    settings.set_boolean("auto-enabled", False)
+    service.on_changed("auto-enabled")
+    service.flush_lights()
+    assert streamer.images[-1] == b"jpeg of cat.png (fill)"
+    assert lights.applied[-1][3] == {"Case/Logo": "#0000FF"}

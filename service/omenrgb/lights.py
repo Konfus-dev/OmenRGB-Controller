@@ -41,6 +41,17 @@ def zone_key(device_name: str, zone_name: str) -> str:
     return f"{device_name}/{zone_name}"
 
 
+class UniformColours(dict):
+    """Zone colours in which every zone has the same colour (auto mode)."""
+
+    def __init__(self, colour: str):
+        super().__init__()
+        self.colour = colour
+
+    def get(self, key, default=None):
+        return self.colour
+
+
 def scale_colour(hex_colour: str, brightness: int, gamma: float = 1.0) -> tuple[int, int, int]:
     """'#RRGGBB' as the values to send to an LED.
 

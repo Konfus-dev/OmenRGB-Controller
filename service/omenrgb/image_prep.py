@@ -32,7 +32,7 @@ def prepare_jpeg(path: Path, fit: str) -> bytes:
             image = _letterbox(image)
         else:
             image = ImageOps.fit(image, (LCD_SIZE, LCD_SIZE))
-        return _encode_small_enough(image)
+        return encode_for_lcd(image)
     except Exception as error:  # Pillow raises many kinds; the caller needs one
         raise ImageError(f"Cannot use {path}: {error}") from error
 
@@ -62,8 +62,11 @@ def _encode(image: Image.Image, quality: int) -> bytes:
     return buffer.getvalue()
 
 
-def _encode_small_enough(image: Image.Image) -> bytes:
-    """Lower the quality, then soften the picture, until the JPEG fits."""
+def encode_for_lcd(image: Image.Image) -> bytes:
+    """JPEG bytes of a 480x480 RGB picture, small enough for the LCD.
+
+    Lowers the quality, then softens the picture, until the JPEG fits.
+    """
     original = image
     detail = LCD_SIZE  # how many pixels of real detail we keep per side
     while True:

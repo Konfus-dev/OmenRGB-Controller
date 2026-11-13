@@ -80,6 +80,11 @@ DISPLAY_NAMES = {
     "RAM/Stick 2": "Right stick",
 }
 
+# Auto mode leaves the normal look alone while one of these apps has focus.
+# The first is the window GNOME shows this project's settings in, so that
+# you see the colours you are choosing while you choose them.
+AUTO_IGNORED_APPS = ("org.gnome.Shell.Extensions.desktop", "org.gnome.Extensions.desktop")
+
 # --- Settings shared with the GNOME Shell extension --------------------------
 SCHEMA_ID = "org.gnome.shell.extensions.omenrgb"
 EXTENSION_UUID = "omenrgb@konfus-dev.github.io"
