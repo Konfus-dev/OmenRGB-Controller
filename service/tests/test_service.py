@@ -6,7 +6,7 @@ import pytest
 from gi.repository import GLib
 
 from omenrgb.image_prep import ImageError
-from omenrgb.lights import DeviceInfo
+from omenrgb.lights import DeviceInfo, EffectOptions
 from omenrgb.service import Service
 
 
@@ -61,8 +61,9 @@ class FakeLights:
             )
         ]
 
-    def apply(self, enabled, brightness, modes, colours):
+    def apply(self, enabled, brightness, modes, colours, options=None):
         self.applied.append((enabled, brightness, modes, colours))
+        self.options = options
 
 
 class FakePrepare:
@@ -109,6 +110,8 @@ def test_start_applies_everything_once(parts):
                 "modes": ["Static", "Off"],
                 "default_mode": "Static",
                 "colourless_modes": ["Off"],
+                "speed_modes": [],
+                "range_modes": [],
                 "zones": ["Logo", "Top Fan"],
                 "zone_labels": ["Logo", "Top Fan"],
             }
@@ -191,6 +194,7 @@ def test_light_keys_trigger_apply(parts):
     for key in ("lights-enabled", "lights-brightness", "device-modes", "zone-colours"):
         before = len(lights.applied)
         service.on_changed(key)
+        service.flush_lights()
         assert len(lights.applied) == before + 1
     assert lights.applied[-1] == (False, 40, {"Case": "Off"}, {"Case/Logo": "#FF0000"})
 
@@ -271,7 +275,7 @@ def test_ram_gets_the_same_settings_as_the_case_lights(with_ram):
     assert ram.applied == [(True, 100, {}, {})]
     settings.set_int("lights-brightness", 30)
     service.on_changed("lights-brightness")
-    service.flush_ram()
+    service.flush_lights()
     assert ram.applied[-1] == (True, 30, {}, {})
 
 
@@ -284,8 +288,37 @@ def test_ram_changes_are_batched(with_ram):
         settings.set_int("lights-brightness", value)
         service.on_changed("lights-brightness")
     assert len(ram.applied) == 1  # nothing sent yet
-    service.flush_ram()
+    service.flush_lights()
     assert len(ram.applied) == 2 and ram.applied[-1][1] == 70
+
+
+def test_case_light_changes_are_batched_too(parts):
+    service, settings, _streamer, lights, _prepare = parts
+    service.start()
+    for value in (90, 80, 70):
+        settings.set_int("lights-brightness", value)
+        service.on_changed("lights-brightness")
+    assert len(lights.applied) == 1
+    service.flush_lights()
+    assert len(lights.applied) == 2 and lights.applied[-1][1] == 70
+
+
+def test_unexpected_image_failure_does_not_crash_the_service(parts):
+    service, settings, streamer, _lights, prepare = parts
+
+    def explode(path, fit):
+        raise RuntimeError("something odd inside the image library")
+
+    service._prepare = explode
+    service.start()  # must not raise, or systemd would restart us forever
+    assert streamer.images == [] and "something odd" in status(settings)["error"]
+
+
+def test_a_failing_tick_does_not_stop_its_timer():
+    def bad_tick():
+        raise RuntimeError("boom")
+
+    assert Service._repeat(bad_tick) is True
 
 
 def test_ram_helper_appearing_later_is_picked_up(settings):
@@ -313,3 +346,21 @@ def test_status_uses_friendly_names_where_known(settings):
     assert device["zones"] == ["Logo", "Top Fan"]  # real names stay for saving settings
     assert device["zone_labels"] == ["Logo", "Top fan"]
     service.stop()
+
+
+def test_effect_options_reach_both_kinds_of_light(with_ram):
+    service, settings, ram = with_ram
+    service.start()
+    settings.set_value("device-speeds", GLib.Variant("a{si}", {"RAM": 80}))
+    settings.set_value("device-min-brightness", GLib.Variant("a{si}", {"RAM": 10}))
+    settings.set_value("device-max-brightness", GLib.Variant("a{si}", {"RAM": 90}))
+    for key in ("device-speeds", "device-min-brightness", "device-max-brightness"):
+        service.on_changed(key)
+    service.flush_lights()
+    assert ram.options["RAM"] == EffectOptions(speed=80, min_brightness=10, max_brightness=90)
+    assert ram.options.get("Case", EffectOptions()) == EffectOptions()  # defaults elsewhere
+
+
+def test_new_setting_defaults(settings):
+    for key in ("device-speeds", "device-min-brightness", "device-max-brightness"):
+        assert settings.get_value(key).unpack() == {}

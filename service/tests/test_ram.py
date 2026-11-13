@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-from omenrgb.lights import DeviceInfo
+from omenrgb.lights import DeviceInfo, EffectOptions
 from omenrgb.ram import RamLights, commands, find_sticks
 
 BEGIN, END = 0x53, 0x44
@@ -97,10 +97,13 @@ class Sender:
         self.batches.append(batch)
 
 
+NOW = [1000.0]  # a clock the tests can move forward
+
+
 def connected(tmp_path, *spd):
     sender = Sender()
     sysfs = make_sysfs(tmp_path, *spd)
-    ram = RamLights(sender, lambda: find_sticks(sysfs))
+    ram = RamLights(sender, lambda: find_sticks(sysfs), clock=lambda: NOW[0])
     assert ram.try_connect() is True
     sender.batches.clear()  # drop the connection test
     return ram, sender
@@ -115,6 +118,8 @@ def test_devices_lists_ram_like_any_other_light(tmp_path):
             ("Stick 1", "Stick 2"),
             default_mode="Rainbow",
             colourless_modes=("Rainbow",),
+            speed_modes=("Rainbow", "Breathing"),
+            range_modes=("Breathing",),
         )
     ]
 
@@ -162,6 +167,7 @@ def test_send_failure_disconnects_then_recovers_and_resends(tmp_path):
     ram.apply(True, 100, {}, {})
     assert ram.connected is False and ram.check() is False
     sender.fail = False
+    NOW[0] += 60  # past the back-off
     assert ram.try_connect() is True
     ram.apply(True, 100, {}, {})
     assert sender.batches[-1] == commands("Rainbow", 100, [(255, 255, 255)], [LEFT])
@@ -175,3 +181,82 @@ def test_ram_applies_gamma_to_stick_colours(tmp_path):
     sender.batches.clear()
     ram.apply(True, 100, {"RAM": "Static"}, {"RAM/Stick 1": "#613583"})
     assert sender.batches == [commands("Static", 100, [(30, 8, 59)], [LEFT])]
+
+
+def value(result, stick, register):
+    return next(v for a, r, v in result if a == stick and r == register)
+
+
+def test_rainbow_speed():
+    def speed(percent):
+        return value(commands("Rainbow", 100, [], [LEFT], speed=percent), LEFT, 0x0E)
+
+    assert speed(50) == 25  # the default the owner approved by eye
+    assert speed(100) == 0 and speed(0) == 50  # smaller number is faster
+    assert speed(999) == 0 and speed(-1) == 50
+
+
+def test_breathing_speed():
+    def times(percent):
+        result = commands("Breathing", 100, [(1, 2, 3)], [LEFT], speed=percent)
+        return [value(result, LEFT, r) for r in (0x16, 0x17, 0x18, 0x19)]
+
+    assert times(50) == [15, 5, 5, 15]  # the default the owner approved by eye
+    assert times(100) == [3, 1, 1, 3] and times(0) == [27, 9, 9, 27]
+
+
+def test_breathing_brightness_range():
+    result = commands("Breathing", 100, [(1, 2, 3)], [LEFT], min_brightness=20, max_brightness=70)
+    assert [value(result, LEFT, r) for r in (0x1B, 0x1C, 0x1D)] == [70, 52, 20]
+    default = commands("Breathing", 100, [(1, 2, 3)], [LEFT])
+    assert [value(default, LEFT, r) for r in (0x1B, 0x1C, 0x1D)] == [100, 64, 0]
+
+
+def test_breathing_range_is_kept_sane():
+    result = commands("Breathing", 100, [(1, 2, 3)], [LEFT], min_brightness=90, max_brightness=40)
+    brightest, _mid, dimmest = (value(result, LEFT, r) for r in (0x1B, 0x1C, 0x1D))
+    assert dimmest <= brightest
+    wild = commands("Breathing", 100, [(1, 2, 3)], [LEFT], min_brightness=-5, max_brightness=500)
+    assert [value(wild, LEFT, r) for r in (0x1B, 0x1D)] == [100, 0]
+
+
+def test_apply_passes_effect_options(tmp_path):
+    ram, sender = connected(tmp_path, 0x51)
+    options = {"RAM": EffectOptions(speed=80, min_brightness=10, max_brightness=90)}
+    ram.apply(True, 100, {"RAM": "Breathing"}, {}, options)
+    assert sender.batches == [
+        commands(
+            "Breathing", 100, [(255, 255, 255)], [LEFT],
+            speed=80, min_brightness=10, max_brightness=90,
+        )
+    ]  # fmt: skip
+
+
+def test_failed_helper_is_left_alone_for_a_while(tmp_path):
+    # A stuck helper must not be retried every few seconds: each try can
+    # block the service, which also has to keep the LCD fed.
+    now = [1000.0]
+    sender = Sender()
+    sysfs = make_sysfs(tmp_path, 0x51)
+    ram = RamLights(sender, lambda: find_sticks(sysfs), clock=lambda: now[0])
+    sender.fail = True
+    assert ram.try_connect() is False
+    sender.fail = False
+    now[0] += 5
+    assert ram.try_connect() is False  # still backing off
+    now[0] += 60
+    assert ram.try_connect() is True
+
+
+def test_send_failure_also_backs_off(tmp_path):
+    now = [1000.0]
+    sender = Sender()
+    sysfs = make_sysfs(tmp_path, 0x51)
+    ram = RamLights(sender, lambda: find_sticks(sysfs), clock=lambda: now[0])
+    ram.try_connect()
+    sender.fail = True
+    ram.apply(True, 100, {}, {})
+    sender.fail = False
+    assert ram.try_connect() is False
+    now[0] += 60
+    assert ram.try_connect() is True

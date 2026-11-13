@@ -61,6 +61,7 @@ ALLOWED_REGISTERS: dict[int, range | tuple] = {
     **{reg: range(0, 256) for reg in range(0x50, 0x74)},  # one colour per LED
 }
 
+MAX_LINE = 64  # the longest valid request is 10 characters
 PAUSE_AFTER_WRITE_S = 0.005  # HP waits 5 ms after an ordinary write
 PAUSE_AFTER_TRANSFER_S = 0.05  # and 50 ms after begin / end
 
@@ -141,8 +142,13 @@ def serve(listener: socket.socket) -> None:
             connection.settimeout(5)
             try:
                 with connection.makefile("rw", encoding="ascii", errors="replace") as stream:
-                    for line in stream:
-                        stream.write(handle_line(line[:64]) + "\n")
+                    # readline(limit) so a client cannot make us hold an
+                    # endless line in memory; an over-long line is refused.
+                    while line := stream.readline(MAX_LINE):
+                        if not line.endswith("\n"):
+                            stream.write("ERR line too long\n")
+                            break
+                        stream.write(handle_line(line) + "\n")
                         stream.flush()
             except OSError:
                 continue  # client went away or was too slow; wait for the next

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 from types import SimpleNamespace
 
-from omenrgb.lights import DeviceInfo, Lights, scale_colour, zone_key
+from omenrgb.lights import DeviceInfo, EffectOptions, Lights, scale_colour, zone_key
 
 
 def rgb(colour):
@@ -24,11 +24,16 @@ class FakeDevice:
         palettes = palettes or {}
         self.name = name
         # color_mode mirrors OpenRGB: 0 = the effect takes no colours.
+        # speed_min/speed_max mirror OpenRGB: only moving effects have them,
+        # and speed_max is the FASTEST value even when it is the smaller number.
         self.modes = [
             SimpleNamespace(
                 name=m,
                 colors=[None] * palettes[m] if m in palettes else None,
                 color_mode=0 if m == "Off" else 1,
+                speed_min=1 if m in palettes else None,
+                speed_max=3 if m in palettes else None,
+                speed=2 if m in palettes else None,
             )
             for m in modes
         ]
@@ -80,6 +85,7 @@ def test_devices_lists_modes_and_zones():
             ("Logo", "Top Fan"),
             default_mode="Static",
             colourless_modes=("Off",),
+            speed_modes=("Breathing",),
         )
     ]
 
@@ -242,3 +248,29 @@ def test_lights_apply_gamma_to_zone_colours():
     lights.try_connect()
     lights.apply(True, 100, {}, {"Case/Logo": "#613583"})
     assert device.zones[0].colour == (30, 8, 59)
+
+
+def breathing_speed(percent):
+    device = case()
+    make(device).apply(True, 100, {"Case": "Breathing"}, {}, {"Case": EffectOptions(speed=percent)})
+    return next(m for m in device.modes if m.name == "Breathing").speed
+
+
+def test_speed_percent_maps_onto_the_effects_own_range():
+    assert breathing_speed(0) == 1 and breathing_speed(50) == 2 and breathing_speed(100) == 3
+
+
+def test_speed_is_clamped_and_optional():
+    assert breathing_speed(900) == 3 and breathing_speed(-5) == 1
+    device = case()
+    make(device).apply(True, 100, {"Case": "Breathing"}, {})  # no options given
+    assert next(m for m in device.modes if m.name == "Breathing").speed == 2  # 50 percent
+
+
+def test_speed_follows_an_inverted_range():
+    # Some OpenRGB effects count downwards: 60 is slowest, 0 fastest.
+    device = case()
+    mode = next(m for m in device.modes if m.name == "Breathing")
+    mode.speed_min, mode.speed_max = 60, 0
+    make(device).apply(True, 100, {"Case": "Breathing"}, {}, {"Case": EffectOptions(speed=100)})
+    assert mode.speed == 0

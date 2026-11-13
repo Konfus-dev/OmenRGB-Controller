@@ -28,6 +28,20 @@
       <description>Maps "Device name/Zone name" to "#RRGGBB".</description>
     </key>
 
+    <key name="device-speeds" type="a{si}">
+      <default>{}</default>
+      <summary>Effect speed per device, percent</summary>
+      <description>Maps a device name to 0 (slowest) .. 100 (fastest). Only moving effects use it.</description>
+    </key>
+    <key name="device-min-brightness" type="a{si}">
+      <default>{}</default>
+      <summary>Dimmest point of a pulsing effect per device, percent</summary>
+    </key>
+    <key name="device-max-brightness" type="a{si}">
+      <default>{}</default>
+      <summary>Brightest point of a pulsing effect per device, percent</summary>
+    </key>
+
     <key name="lcd-enabled" type="b">
       <default>true</default>
       <summary>Cooler LCD on or off (off shows a black screen)</summary>

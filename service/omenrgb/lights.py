@@ -45,6 +45,15 @@ def scale_colour(hex_colour: str, brightness: int, gamma: float = 1.0) -> tuple[
 
 
 @dataclass(frozen=True)
+class EffectOptions:
+    """Extra settings for one device's effect. All are percentages."""
+
+    speed: int = 50  # 0 slowest, 100 fastest; only moving effects use it
+    min_brightness: int = 0  # how dim a pulsing effect gets
+    max_brightness: int = 100  # how bright a pulsing effect gets
+
+
+@dataclass(frozen=True)
 class DeviceInfo:
     """What the settings window needs to know about one lighting device."""
 
@@ -53,6 +62,8 @@ class DeviceInfo:
     zones: tuple[str, ...]
     default_mode: str = ""  # the effect used until the owner picks one
     colourless_modes: tuple[str, ...] = ()  # effects that ignore the zone colours
+    speed_modes: tuple[str, ...] = ()  # effects that move, so have a speed
+    range_modes: tuple[str, ...] = ()  # effects that pulse between two brightnesses
 
 
 class Lights:
@@ -121,6 +132,7 @@ class Lights:
                 colourless_modes=tuple(
                     mode.name for mode in device.modes if _takes_no_colours(mode)
                 ),
+                speed_modes=tuple(mode.name for mode in device.modes if _has_speed(mode)),
             )
             for device in self._client.devices
         ]
@@ -129,19 +141,26 @@ class Lights:
         return [z for z in device.zones if zone_key(device.name, z.name) not in self._hidden]
 
     def apply(
-        self, enabled: bool, brightness: int, modes: dict[str, str], colours: dict[str, str]
+        self,
+        enabled: bool,
+        brightness: int,
+        modes: dict[str, str],
+        colours: dict[str, str],
+        options: dict[str, EffectOptions] | None = None,
     ) -> None:
         """Make the lights match the settings.
 
         modes:   device name -> effect name
         colours: zone_key(device, zone) -> '#RRGGBB'
+        options: device name -> EffectOptions (speed and so on)
         """
         if self._client is None:
             return
         failed = False
         for device in self._client.devices:
             try:
-                self._apply_device(device, enabled, brightness, modes, colours)
+                device_options = (options or {}).get(device.name, EffectOptions())
+                self._apply_device(device, enabled, brightness, modes, colours, device_options)
             except Exception as error:
                 log.warning("Could not set lights on %s: %s", device.name, error)
                 failed = True
@@ -150,7 +169,7 @@ class Lights:
             _disconnect(self._client)
             self._client = None
 
-    def _apply_device(self, device, enabled, brightness, modes, colours) -> None:
+    def _apply_device(self, device, enabled, brightness, modes, colours, options) -> None:
         by_name = {mode.name: mode for mode in device.modes}
         if not by_name:
             return
@@ -173,6 +192,9 @@ class Lights:
         wanted = modes.get(device.name, DEFAULT_MODE) if enabled else DEFAULT_MODE
         mode = by_name.get(wanted) or by_name.get(FALLBACK_MODE) or device.modes[0]
 
+        if _has_speed(mode):
+            mode.speed = _speed_value(mode, options.speed)
+
         if mode.colors is not None and zone_colours:
             # An effect with its own palette (Breathing, Wave, ...): fill the
             # palette by repeating the zone colours, then start the effect.
@@ -192,6 +214,21 @@ def _takes_no_colours(mode) -> bool:
         return int(getattr(mode, "color_mode", 1)) == 0
     except (TypeError, ValueError):
         return False
+
+
+def _has_speed(mode) -> bool:
+    slowest, fastest = getattr(mode, "speed_min", None), getattr(mode, "speed_max", None)
+    return slowest is not None and fastest is not None and slowest != fastest
+
+
+def _speed_value(mode, percent: int) -> int:
+    """Turn 0..100 into the effect's own speed number.
+
+    OpenRGB's speed_min is the slowest setting and speed_max the fastest,
+    whichever of the two is the larger number.
+    """
+    fraction = max(0, min(100, percent)) / 100
+    return round(mode.speed_min + (mode.speed_max - mode.speed_min) * fraction)
 
 
 def _disconnect(client) -> None:

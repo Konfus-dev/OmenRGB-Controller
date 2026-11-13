@@ -16,10 +16,10 @@ from pathlib import Path
 from gi.repository import Gio, GLib
 
 from . import constants as c
-from .image_prep import ImageError, prepare_jpeg
+from .image_prep import prepare_jpeg
 from .lcd_device import LcdDevice, find_hidraw
 from .lcd_streamer import LcdStreamer
-from .lights import DeviceInfo, Lights, zone_key
+from .lights import DeviceInfo, EffectOptions, Lights, zone_key
 from .ram import RamLights
 from .settings import load_settings
 
@@ -27,8 +27,16 @@ log = logging.getLogger(__name__)
 
 LCD_IMAGE_KEYS = ("lcd-image", "lcd-fit")
 LCD_BRIGHTNESS_KEYS = ("lcd-enabled", "lcd-brightness")
-RAM_DEBOUNCE_MS = 250
-LIGHT_KEYS = ("lights-enabled", "lights-brightness", "device-modes", "zone-colours")
+LIGHTS_DEBOUNCE_MS = 250
+LIGHT_KEYS = (
+    "lights-enabled",
+    "lights-brightness",
+    "device-modes",
+    "zone-colours",
+    "device-speeds",
+    "device-min-brightness",
+    "device-max-brightness",
+)
 
 
 class Service:
@@ -47,7 +55,7 @@ class Service:
         self._prepare = prepare
         self._ram = ram  # None on machines without controllable RAM lights
         self._display_names = display_names or {}
-        self._ram_timer = 0  # GLib timer id while a RAM update is waiting
+        self._lights_timer = 0  # GLib timer id while a lights update is waiting
         self._error = ""  # last image problem, shown in the settings window
         self._sources: list[int] = []  # GLib timer ids, so stop() can remove them
         self._handler = 0
@@ -63,7 +71,7 @@ class Service:
         if self._lights.try_connect():
             self._update_lights()
         if self._ram and self._ram.try_connect():
-            self.flush_ram()
+            self._update_ram()
         self.publish_status()
 
         self._sources = [
@@ -76,16 +84,21 @@ class Service:
         for source in self._sources:
             GLib.source_remove(source)
         self._sources = []
-        if self._ram_timer:
-            GLib.source_remove(self._ram_timer)
-            self._ram_timer = 0
+        if self._lights_timer:
+            GLib.source_remove(self._lights_timer)
+            self._lights_timer = 0
         if self._handler:
             self._settings.disconnect(self._handler)
             self._handler = 0
 
     @staticmethod
     def _repeat(tick: Callable[[], None]) -> bool:
-        tick()
+        try:
+            tick()
+        except Exception:
+            # GLib silently drops a timer whose callback raises; a single
+            # bad tick must not stop the LCD or the reconnect checks for good.
+            log.exception("Unexpected error in a timer; carrying on")
         return True  # tells GLib to keep the timer running
 
     # --- reacting to settings ------------------------------------------------
@@ -98,8 +111,7 @@ class Service:
         elif key in LCD_BRIGHTNESS_KEYS:
             self._update_lcd_brightness()
         elif key in LIGHT_KEYS:
-            self._update_lights()
-            self._schedule_ram()
+            self._schedule_lights()
 
     def _update_lcd_image(self) -> None:
         path = self._settings.get_string("lcd-image")
@@ -109,8 +121,9 @@ class Service:
             return
         try:
             jpeg = self._prepare(Path(path), self._settings.get_string("lcd-fit"))
-        except ImageError as error:
-            # Keep showing whatever was there before.
+        except Exception as error:
+            # Normally an ImageError. Either way: keep showing whatever was
+            # there before, and never let a bad picture stop the service.
             log.warning("%s", error)
             self._error = str(error)
             return
@@ -124,33 +137,55 @@ class Service:
     def _update_lights(self) -> None:
         self._lights.apply(*self._light_settings())
 
-    def _light_settings(self) -> tuple[bool, int, dict, dict]:
+    def _light_settings(self) -> tuple[bool, int, dict, dict, dict]:
+        """The arguments for Lights.apply / RamLights.apply."""
+
+        def setting(key: str) -> dict:
+            return self._settings.get_value(key).unpack()
+
+        speeds = setting("device-speeds")
+        dimmest = setting("device-min-brightness")
+        brightest = setting("device-max-brightness")
+        defaults = EffectOptions()
+        options = {
+            name: EffectOptions(
+                speed=speeds.get(name, defaults.speed),
+                min_brightness=dimmest.get(name, defaults.min_brightness),
+                max_brightness=brightest.get(name, defaults.max_brightness),
+            )
+            for name in {*speeds, *dimmest, *brightest}
+        }
         return (
             self._settings.get_boolean("lights-enabled"),
             self._settings.get_int("lights-brightness"),
-            self._settings.get_value("device-modes").unpack(),
-            self._settings.get_value("zone-colours").unpack(),
+            setting("device-modes"),
+            setting("zone-colours"),
+            options,
         )
 
-    def _schedule_ram(self) -> None:
-        """Update the RAM lights shortly, once, however many changes arrive.
+    def _schedule_lights(self) -> None:
+        """Update the lights shortly, once, however many changes arrive.
 
-        A RAM update takes a few tenths of a second, so while a slider is
+        Setting lights takes a few tenths of a second, so while a slider is
         being dragged only the final value is worth sending.
         """
-        if self._ram and not self._ram_timer:
-            self._ram_timer = GLib.timeout_add(RAM_DEBOUNCE_MS, self._on_ram_timer)
+        if not self._lights_timer:
+            self._lights_timer = GLib.timeout_add(LIGHTS_DEBOUNCE_MS, self._on_lights_timer)
 
-    def _on_ram_timer(self) -> bool:
-        self._ram_timer = 0
-        self.flush_ram()
+    def _on_lights_timer(self) -> bool:
+        self._lights_timer = 0
+        self._repeat(self.flush_lights)
         return False  # one-shot timer
 
-    def flush_ram(self) -> None:
-        """Send the current light settings to the RAM sticks now."""
-        if self._ram_timer:
-            GLib.source_remove(self._ram_timer)
-            self._ram_timer = 0
+    def flush_lights(self) -> None:
+        """Send the current light settings to the case and the RAM now."""
+        if self._lights_timer:
+            GLib.source_remove(self._lights_timer)
+            self._lights_timer = 0
+        self._update_lights()
+        self._update_ram()
+
+    def _update_ram(self) -> None:
         if self._ram:
             self._ram.apply(*self._light_settings())
 
@@ -162,7 +197,7 @@ class Service:
         if not self._lights.check() and self._lights.try_connect():
             self._update_lights()
         if self._ram and not self._ram.check() and self._ram.try_connect():
-            self.flush_ram()
+            self._update_ram()
         self.publish_status()
 
     def _describe(self, device: DeviceInfo) -> dict:
@@ -178,6 +213,8 @@ class Service:
             "modes": list(device.modes),
             "default_mode": device.default_mode,
             "colourless_modes": list(device.colourless_modes),
+            "speed_modes": list(device.speed_modes),
+            "range_modes": list(device.range_modes),
             "zones": list(device.zones),
             "zone_labels": [names.get(zone_key(device.name, zone), zone) for zone in device.zones],
         }

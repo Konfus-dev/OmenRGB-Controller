@@ -4,7 +4,7 @@
 import io
 from pathlib import Path
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageOps
 
 from .constants import LCD_SIZE, MAX_JPEG_BYTES
 
@@ -21,23 +21,30 @@ def prepare_jpeg(path: Path, fit: str) -> bytes:
 
     fit="fit" shows the whole picture with black bars; anything else
     ("fill") crops the centre so the screen is completely covered.
+    Whatever goes wrong, the only exception that leaves here is ImageError.
     """
     try:
         with Image.open(path) as opened:
             opened.seek(0)  # first frame of an animation
             image = ImageOps.exif_transpose(opened)  # honour phone rotation
             image = _flatten_onto_black(image)
-    except (OSError, UnidentifiedImageError, ValueError, SyntaxError) as error:
+        if fit == "fit":
+            image = _letterbox(image)
+        else:
+            image = ImageOps.fit(image, (LCD_SIZE, LCD_SIZE))
+        return _encode_small_enough(image)
+    except Exception as error:  # Pillow raises many kinds; the caller needs one
         raise ImageError(f"Cannot use {path}: {error}") from error
-    except Image.DecompressionBombError as error:
-        raise ImageError(f"Cannot use {path}: image is too large") from error
 
-    size = (LCD_SIZE, LCD_SIZE)
-    if fit == "fit":
-        image = ImageOps.pad(image, size, color=(0, 0, 0))
-    else:
-        image = ImageOps.fit(image, size)
-    return _encode_small_enough(image)
+
+def _letterbox(image: Image.Image) -> Image.Image:
+    """The whole picture, centred on a black square."""
+    scale = min(LCD_SIZE / image.width, LCD_SIZE / image.height)
+    # max(1, ...) keeps extremely thin pictures from shrinking to nothing.
+    size = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
+    square = Image.new("RGB", (LCD_SIZE, LCD_SIZE), (0, 0, 0))
+    square.paste(image.resize(size), ((LCD_SIZE - size[0]) // 2, (LCD_SIZE - size[1]) // 2))
+    return square
 
 
 def _flatten_onto_black(image: Image.Image) -> Image.Image:

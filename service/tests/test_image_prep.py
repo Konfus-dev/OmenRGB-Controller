@@ -102,3 +102,21 @@ def test_not_an_image(tmp_path):
 def test_directory_is_an_error(tmp_path):
     with pytest.raises(ImageError):
         prepare_jpeg(tmp_path, "fill")
+
+
+@pytest.mark.parametrize("size", [(1, 5000), (5000, 1)])
+@pytest.mark.parametrize("fit", ["fill", "fit"])
+def test_extremely_thin_images(tmp_path, size, fit):
+    # These used to escape as a ValueError and crash the service at startup.
+    check(prepare_jpeg(save(tmp_path, Image.new("RGB", size, RED)), fit))
+
+
+def test_any_failure_inside_pillow_becomes_image_error(tmp_path, monkeypatch):
+    from omenrgb import image_prep
+
+    def explode(*args, **kwargs):
+        raise MemoryError("picture far too big")
+
+    monkeypatch.setattr(image_prep.ImageOps, "fit", explode)
+    with pytest.raises(ImageError):
+        prepare_jpeg(save(tmp_path, Image.new("RGB", (10, 10), RED)), "fill")

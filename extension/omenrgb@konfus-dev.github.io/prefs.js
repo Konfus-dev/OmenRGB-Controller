@@ -79,6 +79,35 @@ function sliderRow(settings, key, title) {
     return row;
 }
 
+/**
+ * A row with a 0-100 slider for one device, stored in a "device name ->
+ * number" setting (speed, dimmest, brightest).
+ */
+function deviceSliderRow(settings, key, deviceName, title, subtitle, fallback) {
+    const saved = settings.get_value(key).deepUnpack()[deviceName] ?? fallback;
+    const scale = new Gtk.Scale({
+        adjustment: new Gtk.Adjustment({
+            lower: 0, upper: 100, step_increment: 1, page_increment: 10, value: saved,
+        }),
+        draw_value: true,
+        digits: 0,
+        value_pos: Gtk.PositionType.RIGHT,
+        hexpand: true,
+        width_request: 220,
+        valign: Gtk.Align.CENTER,
+    });
+    scale.connect('value-changed', () => {
+        const all = settings.get_value(key).deepUnpack();
+        const value = Math.round(scale.get_value());
+        if (all[deviceName] === value)
+            return;
+        settings.set_value(key, new GLib.Variant('a{si}', {...all, [deviceName]: value}));
+    });
+    const row = new Adw.ActionRow({title, subtitle});
+    row.add_suffix(scale);
+    return row;
+}
+
 /** A group that shows one warning line, hidden while there is nothing to say. */
 function warningGroup() {
     const group = new Adw.PreferencesGroup({visible: false});
@@ -251,6 +280,8 @@ function buildLcdPage(settings, window) {
  *   label, zone_labels     what to show
  *   modes, default_mode    the effects on offer
  *   colourless_modes       effects that ignore colours (their rows are hidden)
+ *   speed_modes            effects that move (they get a speed slider)
+ *   range_modes            effects that pulse (they get dimmest/brightest sliders)
  */
 function buildDeviceGroup(settings, device) {
     const group = new Adw.PreferencesGroup({title: device.label ?? device.name});
@@ -264,6 +295,17 @@ function buildDeviceGroup(settings, device) {
         device.default_mode || DEFAULT_MODE);
     modeRow.selected = Math.max(0, device.modes.indexOf(savedMode));
     group.add(modeRow);
+
+    // Extra sliders that only appear for effects that use them.
+    const speedRow = deviceSliderRow(settings, 'device-speeds', device.name,
+        'Speed', 'How fast the effect moves', 50);
+    const brightestRow = deviceSliderRow(settings, 'device-max-brightness', device.name,
+        'Brightest', 'The top of each pulse', 100);
+    const dimmestRow = deviceSliderRow(settings, 'device-min-brightness', device.name,
+        'Dimmest', 'The bottom of each pulse', 0);
+    [speedRow, brightestRow, dimmestRow].forEach(row => group.add(row));
+    const speedModes = device.speed_modes ?? [];
+    const rangeModes = device.range_modes ?? [];
 
     // One colour for everything, for the common case.
     const colourRows = [];
@@ -306,14 +348,18 @@ function buildDeviceGroup(settings, device) {
         zoneButtons.push(button);
     });
 
-    // Colours only matter for effects that use them.
-    const onModeChanged = () => {
-        const mode = device.modes[modeRow.selected];
-        setEntries(settings, 'device-modes', {[device.name]: mode});
+    // Show only the rows the chosen effect actually uses.
+    const showRowsFor = mode => {
+        speedRow.visible = speedModes.includes(mode);
+        brightestRow.visible = dimmestRow.visible = rangeModes.includes(mode);
         colourRows.forEach(row => (row.visible = !colourless.includes(mode)));
     };
-    modeRow.connect('notify::selected', onModeChanged);
-    colourRows.forEach(row => (row.visible = !colourless.includes(savedMode)));
+    modeRow.connect('notify::selected', () => {
+        const mode = device.modes[modeRow.selected];
+        setEntries(settings, 'device-modes', {[device.name]: mode});
+        showRowsFor(mode);
+    });
+    showRowsFor(device.modes[modeRow.selected]);
 
     return group;
 }

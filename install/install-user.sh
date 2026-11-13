@@ -26,6 +26,10 @@ echo "==> Python environment in $venv"
 
 echo "==> GNOME Shell extension (linked, not copied)"
 mkdir -p "$extensions"
+if [[ -e "$extensions/$uuid" && ! -L "$extensions/$uuid" ]]; then
+    echo "ERROR: $extensions/$uuid exists and is not a link made by this script. Remove it first." >&2
+    exit 1
+fi
 ln -sfn "$repo/extension/$uuid" "$extensions/$uuid"
 glib-compile-schemas --strict "$repo/extension/$uuid/schemas"
 
@@ -39,7 +43,14 @@ if (( known < 100 )); then
     echo "    RAM temperature sensors may stop reporting until the next reboot."
     systemctl --user stop openrgb-server.service 2>/dev/null || true
     timeout 120 openrgb --config "$orgb" --noautoconnect --list-devices >/dev/null 2>&1 || true
-    "$venv/bin/python" -m omenrgb.openrgb_config "$orgb" >/dev/null
+    known="$("$venv/bin/python" -m omenrgb.openrgb_config "$orgb")"
+    if (( known < 100 )); then
+        # Starting OpenRGB without that list would let it probe everything,
+        # RAM included, at every login. Better to stop here.
+        echo "ERROR: could not get OpenRGB's detector list (is openrgb installed?)." >&2
+        echo "       Run 'sudo bash install/setup.sh' first, then this script again." >&2
+        exit 1
+    fi
 fi
 
 echo "==> Background services"
