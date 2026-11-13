@@ -216,3 +216,36 @@ whatever its licence turns out to be among the GPL family.
 Module layout, settings key names, test approach (the protocol encoder and
 image preparation should be testable without hardware), error messages, and
 the exact streaming loop.
+
+## Hardware test results (2026-11-13)
+
+**LCD.** Works. Firmware reports `N9,01,HS,SQ,OMEN-LCD-CAP,V3.05.024,0.1`,
+build `Jun 18 2025` (newer than the public notes' V3.05.019; same protocol).
+Claim is acknowledged with byte[5]=7. Labelled 480x480 JPEG test screens
+were seen by the owner. Replies arrive about 0.2 s late and queued one
+behind the request, so the service never depends on them. Frames are sent
+every 500 ms, the rate HP's own software uses for a still image. Streaming
+cost: below 1% of one CPU core.
+
+**Case lights.** Work through OpenRGB. It reports one device, "HP Omen 30L",
+modes `Direct, Static, Off, Breathing, Color Cycle, Blinking, Wave, Radial`,
+and seven one-LED zones: `Omen Logo, Light Bar, Front Fan, CPU Cooler, Front
+Bottom Fan, Front Middle Fan, Front Top Fan`. Setting the whole device green
+turned the front logo and all three front fans green. On the 45L, `Front
+Fan` and `CPU Cooler` are reported by others to be unconnected. `Direct` and
+`Static` take one colour per zone; the effect modes take a short palette and
+a speed of 1 to 3.
+
+Consequence for the design: lighting settings are per zone (colour) and per
+device (mode), not per device only.
+
+**RAM lights. Not controllable yet.** The sticks are an HP OEM kit made by
+Kingston (`HP60U40S8HA-16FRE`, two sticks). OpenRGB's Kingston Fury DDR5
+driver gets no answer from them at its expected addresses. They keep doing
+their own thing (one stick amber, one colour-cycling). Left out of v1.
+
+**OpenRGB server.** `openrgb --server --server-host 127.0.0.1
+--noautoconnect` works. Device detection finishes a few seconds after the
+port opens, so a client must retry until devices appear. `openrgb-python`
+0.3.8 works on Python 3.14: `OpenRGBClient(host, port, name)`,
+`device.set_mode(...)`, `zone.set_color(RGBColor(r, g, b))`.
