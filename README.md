@@ -1,4 +1,4 @@
-# omen-control
+# OmenRGB-Linux-Controller
 
 One control panel for the lighting and CPU-cooler LCD of an HP OMEN 45L desktop on Linux.
 
