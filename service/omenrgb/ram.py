@@ -161,9 +161,11 @@ class RamLights:
         self,
         send: Callable[[list[Command]], None] = send_to_helper,
         find: Callable[[], list[int]] = find_sticks,
+        gamma: float = 1.0,
     ):
         self._send = send
         self._find = find
+        self._gamma = gamma  # see lights.scale_colour
         self._sticks: list[int] = []
         self._last_sent: list[Command] | None = None
 
@@ -213,7 +215,11 @@ class RamLights:
             return
         mode = modes.get(DEVICE_NAME, DEFAULT_MODE) if enabled else "Off"
         per_stick = [
-            scale_colour(colours.get(zone_key(DEVICE_NAME, f"Stick {i + 1}"), DEFAULT_COLOUR), 100)
+            scale_colour(
+                colours.get(zone_key(DEVICE_NAME, f"Stick {i + 1}"), DEFAULT_COLOUR),
+                100,
+                self._gamma,
+            )
             for i in range(len(self._sticks))
         ]
         batch = commands(mode, brightness, [] if mode == "Off" else per_stick, self._sticks)

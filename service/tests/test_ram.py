@@ -165,3 +165,13 @@ def test_send_failure_disconnects_then_recovers_and_resends(tmp_path):
     assert ram.try_connect() is True
     ram.apply(True, 100, {}, {})
     assert sender.batches[-1] == commands("Rainbow", 100, [(255, 255, 255)], [LEFT])
+
+
+def test_ram_applies_gamma_to_stick_colours(tmp_path):
+    sender = Sender()
+    sysfs = make_sysfs(tmp_path, 0x51)
+    ram = RamLights(sender, lambda: find_sticks(sysfs), gamma=2.2)
+    ram.try_connect()
+    sender.batches.clear()
+    ram.apply(True, 100, {"RAM": "Static"}, {"RAM/Stick 1": "#613583"})
+    assert sender.batches == [commands("Static", 100, [(30, 8, 59)], [LEFT])]

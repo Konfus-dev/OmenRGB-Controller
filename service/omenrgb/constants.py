@@ -60,6 +60,11 @@ HIDDEN_ZONES = (
     "HP Omen 30L/CPU Cooler",
 )
 
+# How strongly colours are curved before they go to the LEDs, so that what
+# you pick on screen is what you see on the hardware. 1.0 means no curve;
+# raise it if dark colours look pale, lower it if they look too dim.
+LED_GAMMA = 2.2
+
 # Friendlier names for the settings window. Anything not listed here is shown
 # under the name OpenRGB gives it. Keys are "Device name" or
 # "Device name/Zone name".

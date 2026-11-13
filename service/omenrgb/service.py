@@ -238,8 +238,8 @@ def main(argv: list[str] | None = None) -> int:
     service = Service(
         settings,
         LcdStreamer(_open_lcd),
-        Lights(_connect_openrgb, c.HIDDEN_ZONES),
-        ram=RamLights(),
+        Lights(_connect_openrgb, c.HIDDEN_ZONES, c.LED_GAMMA),
+        ram=RamLights(gamma=c.LED_GAMMA),
         display_names=c.DISPLAY_NAMES,
     )
     loop = GLib.MainLoop()

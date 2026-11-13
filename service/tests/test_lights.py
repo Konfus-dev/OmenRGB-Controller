@@ -227,3 +227,18 @@ def test_hidden_zones_stay_out_of_effect_palettes():
     lights.apply(True, 100, {"Case": "Breathing"}, {"Case/Logo": "#FF0000", "Case/Fan": "#0000FF"})
     palette = next(m for m in device.modes if m.name == "Breathing").colors
     assert [rgb(c) for c in palette] == [(255, 0, 0), (0, 0, 255), (255, 0, 0), (0, 0, 255)]
+
+
+def test_gamma_makes_dark_colours_look_right_on_leds():
+    # LEDs show a "dark purple" as pale lilac unless the values are curved.
+    assert scale_colour("#613583", 100, gamma=2.2) == (30, 8, 59)
+    assert scale_colour("#FF0000", 100, gamma=2.2) == (255, 0, 0)  # pure colours unchanged
+    assert scale_colour("#FFFFFF", 50, gamma=2.2) == (128, 128, 128)  # brightness stays linear
+
+
+def test_lights_apply_gamma_to_zone_colours():
+    device = case()
+    lights = Lights(lambda: SimpleNamespace(devices=[device]), gamma=2.2)
+    lights.try_connect()
+    lights.apply(True, 100, {}, {"Case/Logo": "#613583"})
+    assert device.zones[0].colour == (30, 8, 59)

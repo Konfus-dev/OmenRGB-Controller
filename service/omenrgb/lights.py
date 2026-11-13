@@ -25,8 +25,14 @@ def zone_key(device_name: str, zone_name: str) -> str:
     return f"{device_name}/{zone_name}"
 
 
-def scale_colour(hex_colour: str, brightness: int) -> tuple[int, int, int]:
-    """'#RRGGBB' dimmed to `brightness` percent. Bad input counts as white."""
+def scale_colour(hex_colour: str, brightness: int, gamma: float = 1.0) -> tuple[int, int, int]:
+    """'#RRGGBB' as the values to send to an LED.
+
+    `gamma` curves each channel first: LEDs put out light in proportion to
+    the number they are given, while screens do not, so without a curve a
+    dark colour picked on screen looks pale and washed out on the LEDs.
+    `brightness` (percent) then dims the result. Bad input counts as white.
+    """
     text = hex_colour.strip().lstrip("#")
     try:
         if len(text) != 6:
@@ -35,7 +41,7 @@ def scale_colour(hex_colour: str, brightness: int) -> tuple[int, int, int]:
     except ValueError:
         red, green, blue = 255, 255, 255
     factor = max(0, min(100, brightness)) / 100
-    return (round(red * factor), round(green * factor), round(blue * factor))
+    return tuple(round(255 * (part / 255) ** gamma * factor) for part in (red, green, blue))
 
 
 @dataclass(frozen=True)
@@ -50,13 +56,19 @@ class DeviceInfo:
 
 
 class Lights:
-    def __init__(self, connect: Callable[[], object], hidden_zones: Collection[str] = ()):
+    def __init__(
+        self,
+        connect: Callable[[], object],
+        hidden_zones: Collection[str] = (),
+        gamma: float = 1.0,
+    ):
         """`connect` returns an openrgb.OpenRGBClient, or raises if OpenRGB
         is not running. `hidden_zones` are zone_key() names that OpenRGB
         reports but that have no lights attached; they are never shown or
         written to."""
         self._connect = connect
         self._hidden = frozenset(hidden_zones)
+        self._gamma = gamma  # see scale_colour
         self._client = None
 
     @property
@@ -148,6 +160,7 @@ class Lights:
                 *scale_colour(
                     colours.get(zone_key(device.name, zone.name), DEFAULT_COLOUR),
                     brightness if enabled else 0,
+                    self._gamma,
                 )
             )
             for zone in zones
