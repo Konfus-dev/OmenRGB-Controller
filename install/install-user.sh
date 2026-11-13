@@ -61,7 +61,9 @@ systemctl --user enable openrgb-server.service omenrgb.service
 # Stop our service first, so it lets go of OpenRGB before OpenRGB restarts.
 # Otherwise OpenRGB cannot reopen its port for a minute or two.
 systemctl --user stop omenrgb.service
-systemctl --user restart openrgb-server.service
+# "|| true": even if OpenRGB will not start, our service must come back up
+# (the LCD and RAM do not need OpenRGB).
+systemctl --user restart openrgb-server.service || true
 systemctl --user start omenrgb.service
 
 echo

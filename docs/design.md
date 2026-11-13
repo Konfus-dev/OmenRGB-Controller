@@ -74,6 +74,12 @@ OpenRGB runs with its own configuration folder in which every detector
 except that one is switched off (`openrgb_config.py`). Its normal RAM
 probing is what jams the RAM bus.
 
+Breathing is not left to the board. Its built-in breathing always fades to
+black and has three fixed speeds, so the service puts the board in "Direct"
+mode and sends a smoothly changing brightness about 30 times a second
+(`lights.breath_level`). That is what makes the speed, dimmest and brightest
+sliders work. The fast timer only runs while something is breathing.
+
 ## RAM lights
 
 The sticks are HP-branded Kingston Fury DDR5 (`HP60U40S8HA-16FRE`). They
@@ -100,6 +106,23 @@ password prompt per change (unusable). The helper:
 
 Register meanings come from HP's module and from OpenRGB's
 `KingstonFuryDRAMController`.
+
+## Auto mode
+
+Optional. The extension writes the focused app's id (for example
+`firefox.desktop`) to the `focused-app` setting, and only while auto mode is
+on. Everything else happens in the service (`app_look.py`): it finds the
+app's icon in the current icon theme, picks the icon's most striking colour
+(grouping pixels by hue, ignoring greys, then making the winner vivid enough
+for LEDs), and builds an LCD picture of the icon on black. That colour
+replaces every zone colour and the picture replaces the chosen LCD image
+until focus moves on. Apps with no usable icon, and this project's own
+settings window, fall back to the normal settings.
+
+## After sleep
+
+The service listens for logind's "woke from sleep" signal and sends all
+light settings again, in case the hardware lost them.
 
 ## Settings
 

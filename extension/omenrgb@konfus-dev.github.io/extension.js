@@ -5,8 +5,12 @@
 // Pressing it opens the settings window (prefs.js), where everything is
 // changed. The background service (service/omenrgb) then does the real work,
 // so nothing in here can slow down or freeze the desktop.
+//
+// For auto mode this file also tells the service which app has focus, by
+// writing its id to the "focused-app" setting.
 
 import GObject from 'gi://GObject';
+import Shell from 'gi://Shell';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -63,10 +67,51 @@ export default class OmenLightsExtension extends Extension {
     enable() {
         this._indicator = new OmenIndicator(this);
         Main.panel.statusArea.quickSettings.addExternalIndicator(this._indicator);
+
+        // Auto mode is an extra: if it cannot start, the button still works.
+        try {
+            this._startFocusTracking();
+        } catch (error) {
+            console.error(`OMEN Lights: auto mode is unavailable: ${error}`);
+        }
     }
 
     disable() {
+        this._stopFocusTracking();
         this._indicator?.destroy();
         this._indicator = null;
+    }
+
+    // --- auto mode: report which app has focus ---------------------------------
+
+    _startFocusTracking() {
+        this._settings = this.getSettings();
+        this._tracker = Shell.WindowTracker.get_default();
+        this._focusId = this._tracker.connect('notify::focus-app', () => this._publishFocus());
+        // Report straight away when auto mode is switched on.
+        this._autoId = this._settings.connect('changed::auto-enabled', () => this._publishFocus());
+        // Forget whatever app the last session ended on, then report afresh.
+        this._settings.set_string('focused-app', '');
+        this._publishFocus();
+    }
+
+    _stopFocusTracking() {
+        this._settings?.set_string('focused-app', '');
+        if (this._focusId)
+            this._tracker.disconnect(this._focusId);
+        if (this._autoId)
+            this._settings.disconnect(this._autoId);
+        this._focusId = this._autoId = null;
+        this._tracker = this._settings = null;
+    }
+
+    _publishFocus() {
+        if (!this._settings.get_boolean('auto-enabled'))
+            return; // do not write anything while auto mode is off
+        // Focus is briefly on "nothing" whenever a menu or the overview
+        // opens; keep the last real app instead of flickering.
+        const id = this._tracker.focus_app?.get_id();
+        if (id && id !== this._settings.get_string('focused-app'))
+            this._settings.set_string('focused-app', id);
     }
 }

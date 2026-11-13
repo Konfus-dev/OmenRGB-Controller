@@ -16,6 +16,10 @@ own risk.
   them all off.
 - **RAM lights:** a colour per stick, or a rainbow or breathing effect, with
   the same on/off switch and brightness as the case lights.
+- **Effects you can tune:** moving effects get a speed slider, and breathing
+  gets "dimmest" and "brightest" sliders, on the case as well as the RAM.
+- **Auto mode:** optionally match the PC to the app you are using. The lights
+  take the main colour of the focused app's icon and the LCD shows the icon.
 - **One place:** an "OMEN Lights" button next to Wi-Fi and Bluetooth that
   opens a settings window for all of it.
 - Your choices come back by themselves after a reboot.
@@ -94,6 +98,7 @@ The code is meant to be easy to change. Each file has one job:
 | `service/omenrgb/lights.py` | Asks OpenRGB for case-light colours and effects |
 | `service/omenrgb/openrgb_config.py` | Keeps OpenRGB away from everything but the case lights |
 | `service/omenrgb/ram.py` | Turns RAM effects and colours into register writes |
+| `service/omenrgb/app_look.py` | Auto mode: an app's icon, its main colour, its LCD picture |
 | `helper/omenrgb_ram_helper.py` | Root helper: checks RAM writes and hands them to the BIOS |
 | `service/omenrgb/service.py` | Connects settings to the two halves |
 | `extension/…/extension.js` | The top-right menu button |
@@ -133,6 +138,9 @@ gsettings --schemadir ~/.local/share/gnome-shell/extensions/omenrgb@konfus-dev.g
   restarted it can need a minute or two before it accepts connections.
 - **RAM lights do not react:** check `systemctl status omenrgb-ram.socket`
   and that `lsmod | grep acpi_call` shows the module.
+- **Auto mode does nothing:** it needs the extension, so log out and back in
+  after installing. Apps without an icon in your icon theme keep the normal
+  look, as does this project's own settings window.
 - **After a full power-off** the LCD shows the logo, and the RAM its
   rainbow, until you log in.
 - **RAM temperature sensors stopped reporting:** something talked to the RAM

@@ -260,3 +260,13 @@ def test_send_failure_also_backs_off(tmp_path):
     assert ram.try_connect() is False
     now[0] += 60
     assert ram.try_connect() is True
+
+
+def test_forget_makes_the_next_apply_send_again(tmp_path):
+    # After sleep the sticks may have lost their settings even though ours
+    # have not changed.
+    ram, sender = connected(tmp_path, 0x51)
+    ram.apply(True, 100, {}, {})
+    ram.forget()
+    ram.apply(True, 100, {}, {})
+    assert len(sender.batches) == 2

@@ -48,6 +48,7 @@ RECONNECT_INTERVAL_S = 5
 # --- OpenRGB (drives the case lights) ----------------------------------------
 OPENRGB_HOST = "127.0.0.1"
 OPENRGB_PORT = 6742
+OPENRGB_TIMEOUT_S = 2.0  # how long to wait for OpenRGB to answer a request
 # The only OpenRGB hardware detectors left switched on (see openrgb_config.py).
 # "HP Omen 30L" is OpenRGB's name for the 45L's case-light board.
 OPENRGB_DETECTORS = ("HP Omen 30L",)
@@ -78,6 +79,11 @@ DISPLAY_NAMES = {
     "RAM/Stick 1": "Left stick",
     "RAM/Stick 2": "Right stick",
 }
+
+# Auto mode leaves the normal look alone while one of these apps has focus.
+# The first is the window GNOME shows this project's settings in, so that
+# you see the colours you are choosing while you choose them.
+AUTO_IGNORED_APPS = ("org.gnome.Shell.Extensions.desktop", "org.gnome.Extensions.desktop")
 
 # --- Settings shared with the GNOME Shell extension --------------------------
 SCHEMA_ID = "org.gnome.shell.extensions.omenrgb"

@@ -5,6 +5,9 @@ After=openrgb-server.service
 Wants=openrgb-server.service
 
 [Service]
+# Rebuild the compiled settings list first, so a newly pulled version with
+# new settings never starts against an old list.
+ExecStartPre=/usr/bin/glib-compile-schemas %h/.local/share/gnome-shell/extensions/omenrgb@konfus-dev.github.io/schemas
 ExecStart=%h/.local/share/omenrgb/venv/bin/python -m omenrgb
 Restart=on-failure
 RestartSec=5

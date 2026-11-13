@@ -8,6 +8,7 @@
 
 import Adw from 'gi://Adw';
 import GLib from 'gi://GLib';
+import GObject from 'gi://GObject';
 import Gdk from 'gi://Gdk';
 import Gio from 'gi://Gio';
 import Gtk from 'gi://Gtk';
@@ -409,6 +410,68 @@ function buildLightsPage(settings, window) {
     return page;
 }
 
+// --- Auto page ------------------------------------------------------------------
+
+function buildAutoPage(settings, window) {
+    const page = new Adw.PreferencesPage({title: 'Auto', icon_name: 'starred-symbolic'});
+
+    const group = new Adw.PreferencesGroup({
+        title: 'Auto mode',
+        description: 'Match the PC to the app you are using. Your normal settings ' +
+            'come back for apps without a recognisable icon, and while this window has focus.',
+    });
+    page.add(group);
+
+    const enabledRow = new Adw.SwitchRow({title: 'Auto mode'});
+    settings.bind('auto-enabled', enabledRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+    group.add(enabledRow);
+
+    const lightsRow = new Adw.SwitchRow({
+        title: 'Lights follow the app',
+        subtitle: 'Uses the main colour of the app\u2019s icon',
+    });
+    settings.bind('auto-lights', lightsRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+    group.add(lightsRow);
+
+    const lcdRow = new Adw.SwitchRow({
+        title: 'LCD shows the app',
+        subtitle: 'Puts the app\u2019s icon on the cooler screen',
+    });
+    settings.bind('auto-lcd', lcdRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+    group.add(lcdRow);
+
+    // The two options only mean something while auto mode is on.
+    for (const row of [lightsRow, lcdRow])
+        enabledRow.bind_property('active', row, 'sensitive', GObject.BindingFlags.SYNC_CREATE);
+
+    // What auto mode last picked up, as reported by the service.
+    const nowRow = new Adw.ActionRow({title: 'Last app followed'});
+    const swatch = new Gtk.ColorDialogButton({
+        dialog: new Gtk.ColorDialog({with_alpha: false}),
+        valign: Gtk.Align.CENTER,
+        sensitive: false, // display only
+    });
+    nowRow.add_suffix(swatch);
+    group.add(nowRow);
+
+    const refresh = () => {
+        const auto = readStatus(settings).auto ?? {};
+        nowRow.visible = settings.get_boolean('auto-enabled');
+        nowRow.subtitle = auto.app ? auto.app.replace(/\.desktop$/, '') : 'None yet';
+        swatch.visible = Boolean(auto.colour);
+        if (auto.colour)
+            swatch.rgba = hexToRgba(auto.colour);
+    };
+    const ids = ['status', 'auto-enabled'].map(key => settings.connect(`changed::${key}`, refresh));
+    window.connect('close-request', () => {
+        ids.forEach(id => settings.disconnect(id));
+        return false;
+    });
+    refresh();
+
+    return page;
+}
+
 /** Extra styling for this window only. */
 function loadStyles() {
     const provider = new Gtk.CssProvider();
@@ -427,5 +490,6 @@ export default class OmenLightsPreferences extends ExtensionPreferences {
         window.set_default_size(560, 760);
         window.add(buildLcdPage(settings, window));
         window.add(buildLightsPage(settings, window));
+        window.add(buildAutoPage(settings, window));
     }
 }

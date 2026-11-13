@@ -69,10 +69,28 @@
       <summary>Recently used LCD images, newest first, at most 8</summary>
     </key>
 
+    <key name="auto-enabled" type="b">
+      <default>false</default>
+      <summary>Auto mode: match the lights and LCD to the app in use</summary>
+    </key>
+    <key name="auto-lights" type="b">
+      <default>true</default>
+      <summary>In auto mode, colour the lights from the focused app's icon</summary>
+    </key>
+    <key name="auto-lcd" type="b">
+      <default>true</default>
+      <summary>In auto mode, show the focused app's icon on the LCD</summary>
+    </key>
+    <key name="focused-app" type="s">
+      <default>''</default>
+      <summary>Written by the extension: the app that has focus</summary>
+      <description>An app id such as 'firefox.desktop'. Only kept up to date while auto mode is on.</description>
+    </key>
+
     <key name="status" type="s">
       <default>'{}'</default>
       <summary>Written by the service only</summary>
-      <description>JSON: {"lcd": bool, "openrgb": bool, "ram": bool, "error": str, "devices": [{"name": str, "modes": [str], "zones": [str]}]}</description>
+      <description>JSON: {"lcd": bool, "openrgb": bool, "ram": bool, "error": str, "auto": {"app": str, "colour": str}, "devices": [{"name": str, "modes": [str], "zones": [str]}]}</description>
     </key>
 
   </schema>

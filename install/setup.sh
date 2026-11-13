@@ -29,15 +29,16 @@ fi
 
 warn() { echo "WARNING: $*" >&2; }
 
-# --- Cooler LCD and case lights (needed by everything) -----------------------
-
-echo "==> Installing OpenRGB (case lights) and Python venv support"
-apt-get install -y openrgb python3-venv python3-pip
+# --- Cooler LCD and case lights ---------------------------------------------
 
 echo "==> Allowing $user to talk to the cooler LCD (USB 03f0:7397)"
 install -m 0644 "$here/70-omen-lcd.rules" /etc/udev/rules.d/70-omen-lcd.rules
 udevadm control --reload
 udevadm trigger --subsystem-match=hidraw
+
+echo "==> Installing Python venv support and OpenRGB (case lights)"
+apt-get install -y python3-venv python3-pip
+apt-get install -y openrgb || warn "could not install openrgb; case lights will be unavailable"
 
 echo "==> Loading i2c-dev now and at every boot (OpenRGB expects it)"
 printf 'i2c-dev\n' > /etc/modules-load.d/i2c-dev.conf
@@ -48,9 +49,14 @@ modprobe i2c-dev || warn "could not load i2c-dev"
 echo "==> Installing acpi_call, which lets the RAM helper ask the BIOS to set the RAM lights"
 ram_ok=yes
 apt-get install -y acpi-call-dkms || ram_ok=no
-printf 'acpi_call\n' > /etc/modules-load.d/omenrgb-acpi-call.conf
 modprobe acpi_call || ram_ok=no
-[[ $ram_ok == yes ]] || warn "acpi_call is not working (new kernel? Secure Boot?). RAM lights will be unavailable; everything else is unaffected."
+if [[ $ram_ok == yes ]]; then
+    printf 'acpi_call\n' > /etc/modules-load.d/omenrgb-acpi-call.conf
+else
+    # Do not ask for a module at every boot that cannot be loaded.
+    rm -f /etc/modules-load.d/omenrgb-acpi-call.conf
+    warn "acpi_call is not working (new kernel? Secure Boot?). RAM lights will be unavailable; everything else is unaffected."
+fi
 
 echo "==> Installing the RAM lighting helper (the only part that runs as root)"
 install -d -m 0755 /usr/local/lib/omenrgb
@@ -58,10 +64,15 @@ install -m 0755 -o root -g root "$repo/helper/omenrgb_ram_helper.py" /usr/local/
 install -m 0644 "$repo/systemd/omenrgb-ram.service" /etc/systemd/system/
 sed "s/@USER@/$user/" "$repo/systemd/omenrgb-ram.socket" > /etc/systemd/system/omenrgb-ram.socket
 systemctl daemon-reload
-systemctl enable omenrgb-ram.socket
 # Stop the running helper first: systemd will not restart a socket whose
 # service is still active. The next request starts the new copy.
 systemctl stop omenrgb-ram.service 2>/dev/null || true
-systemctl restart omenrgb-ram.socket
+if [[ $ram_ok == yes ]]; then
+    systemctl enable omenrgb-ram.socket
+    systemctl restart omenrgb-ram.socket
+else
+    # Without acpi_call the helper could only fail; leave it switched off.
+    systemctl disable --now omenrgb-ram.socket 2>/dev/null || true
+fi
 
 echo "Done."
