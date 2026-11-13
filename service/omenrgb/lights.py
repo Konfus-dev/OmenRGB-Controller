@@ -21,18 +21,20 @@ FALLBACK_MODE = "Direct"  # used when the saved effect does not exist
 OFF_MODE = "Off"
 DEFAULT_COLOUR = "#FFFFFF"  # used for a zone with no saved colour
 
-# "Breathing" is animated by this program instead of by the lighting board.
-# The board's own breathing always fades to black and has three speeds;
-# doing it ourselves gives a real speed, dimmest and brightest setting. It
-# needs FALLBACK_MODE ("Direct"), in which the board shows whatever colours
-# it is sent.
 # If a connection attempt hangs this long before failing, OpenRGB is in a
 # bad way; do not try again for a while, because each try holds up the rest
 # of the service (which has an LCD to keep fed).
 SLOW_FAILURE_S = 2.0
 RETRY_AFTER_SLOW_FAILURE_S = 60
 
+# Plain colours and breathing are drawn by this program, with the lighting
+# board in FALLBACK_MODE ("Direct"), where it simply shows the colours it is
+# sent. That lets a colour change glide from old to new instead of jumping,
+# and gives breathing a real speed, dimmest and brightest setting (the
+# board's own breathing always fades to black and has three speeds).
 SOFTWARE_BREATHING = "Breathing"
+SOFTWARE_MODES = (DEFAULT_MODE, FALLBACK_MODE, SOFTWARE_BREATHING)
+FADE_S = 0.4  # how long a colour change takes
 BREATH_SLOWEST_S, BREATH_FASTEST_S = 8.0, 1.0  # length of one breath in and out
 
 
@@ -97,14 +99,26 @@ def breath_level(elapsed_s: float, speed: int, min_brightness: int, max_brightne
     return dimmest + (brightest - dimmest) * swell
 
 
+Rgb = tuple[float, float, float]
+
+
 @dataclass
-class _Breath:
-    """One device that is currently being breathed by us."""
+class _Glow:
+    """One device whose colours we are drawing ourselves, in direct mode."""
 
     device: object
-    colours: list[tuple[int, int, int]]  # full-brightness colour of every LED
-    options: EffectOptions
-    started_at: float | None = field(default=None)  # set on the first frame
+    shown: list[Rgb]  # colour of every LED right now (before any breathing)
+    target: list[Rgb]  # where a fade is heading
+    fade_from: list[Rgb] = field(default_factory=list)
+    fading: bool = False
+    fade_started_at: float | None = None  # set on the fade's first frame
+    breath: EffectOptions | None = None  # set while the device is breathing
+    breath_started_at: float | None = None
+
+    @property
+    def active(self) -> bool:
+        """True while frames have to keep being sent."""
+        return self.fading or self.breath is not None
 
 
 @dataclass(frozen=True)
@@ -135,7 +149,7 @@ class Lights:
         self._connect = connect
         self._hidden = frozenset(hidden_zones)
         self._gamma = gamma  # see scale_colour
-        self._breaths: dict[str, _Breath] = {}  # device name -> running breath
+        self._glows: dict[str, _Glow] = {}  # device name -> device we draw ourselves
         self._clock = clock
         self._retry_at = 0.0  # do not try to connect before this time
         self._client = None
@@ -234,55 +248,92 @@ class Lights:
     def _drop(self) -> None:
         _disconnect(self._client)
         self._client = None
-        self._breaths.clear()
+        self._glows.clear()
 
     def forget(self) -> None:
         """Assume the hardware has lost its state (after sleep): the next
         apply sets everything up from scratch, including direct mode."""
-        self._breaths.clear()
+        self._glows.clear()
 
-    # --- breathing, animated by us -------------------------------------------------
+    # --- colours drawn by us: fades and breathing --------------------------------
 
     @property
     def animating(self) -> bool:
         """True while tick_animation() needs to be called many times a second."""
-        return bool(self._breaths)
+        return any(glow.active for glow in self._glows.values())
 
     def tick_animation(self, now: float) -> None:
-        """Send the next frame of every running breath. `now` is in seconds."""
+        """Send the next frame of every running fade or breath. `now` is in seconds."""
         try:
-            for breath in self._breaths.values():
-                if breath.started_at is None:
-                    breath.started_at = now
-                level = breath_level(
-                    now - breath.started_at,
-                    breath.options.speed,
-                    breath.options.min_brightness,
-                    breath.options.max_brightness,
-                )
-                frame = [RGBColor(*(round(part * level) for part in c)) for c in breath.colours]
-                breath.device.set_colors(frame, fast=True)
+            for glow in self._glows.values():
+                if glow.active:
+                    self._advance(glow, now)
         except Exception as error:
             log.warning("Lost connection to OpenRGB while animating: %s", error)
             self._drop()
 
-    def _start_breath(self, device, by_name, brightness, colours, options) -> None:
-        """Begin breathing `device`, or update a breath that is already running."""
-        led_colours = []
+    def finish_transitions(self) -> None:
+        """Jump every running fade to its end (used when there is no time)."""
+        try:
+            for glow in self._glows.values():
+                if glow.fading:
+                    glow.shown, glow.fading = list(glow.target), False
+                    _send_frame(glow, 1.0)
+        except Exception as error:
+            log.warning("Lost connection to OpenRGB: %s", error)
+            self._drop()
+
+    def _advance(self, glow: _Glow, now: float) -> None:
+        if glow.fading:
+            if glow.fade_started_at is None:
+                glow.fade_started_at = now
+            progress = min(1.0, (now - glow.fade_started_at) / FADE_S)
+            glow.shown = [
+                tuple(a + (b - a) * progress for a, b in zip(start, end, strict=True))
+                for start, end in zip(glow.fade_from, glow.target, strict=True)
+            ]
+            glow.fading = progress < 1.0
+        level = 1.0
+        if glow.breath is not None:
+            if glow.breath_started_at is None:
+                glow.breath_started_at = now
+            level = breath_level(
+                now - glow.breath_started_at,
+                glow.breath.speed,
+                glow.breath.min_brightness,
+                glow.breath.max_brightness,
+            )
+        _send_frame(glow, level)
+
+    def _draw(self, device, by_name, enabled, brightness, wanted, colours, options) -> None:
+        """Show `device` in a plain colour or breathing, gliding to the new look."""
+        target: list[Rgb] = []
         for zone in device.zones:
             key = zone_key(device.name, zone.name)
-            if key in self._hidden:
+            if key in self._hidden or not enabled:
                 colour = (0, 0, 0)
             else:
                 colour = scale_colour(colours.get(key, DEFAULT_COLOUR), brightness, self._gamma)
-            led_colours.extend([colour] * len(zone.leds))
-        running = self._breaths.get(device.name)
-        if running is None:
+            target.extend([colour] * len(zone.leds))
+        breath = options if enabled and wanted == SOFTWARE_BREATHING else None
+
+        glow = self._glows.get(device.name)
+        if glow is None:
+            # First time: there is no old look to glide from.
             device.set_mode(by_name[FALLBACK_MODE])
-            self._breaths[device.name] = _Breath(device, led_colours, options)
-        else:
-            # Same breath, new settings: keep its rhythm instead of restarting.
-            running.colours, running.options = led_colours, options
+            glow = self._glows[device.name] = _Glow(device, list(target), list(target))
+            glow.breath = breath
+            if breath is None:
+                _send_frame(glow, 1.0)
+            return
+        if target != glow.target:
+            glow.fade_from, glow.target = list(glow.shown), target
+            glow.fading, glow.fade_started_at = True, None
+        if breath is None and glow.breath is not None and not glow.fading:
+            _send_frame(glow, 1.0)  # breathing stopped: settle at full level
+        if breath is None:
+            glow.breath_started_at = None
+        glow.breath = breath  # a breath already running keeps its rhythm
 
     def _apply_device(self, device, enabled, brightness, modes, colours, options) -> None:
         by_name = {mode.name: mode for mode in device.modes}
@@ -301,10 +352,10 @@ class Lights:
         ]
 
         wanted = modes.get(device.name, DEFAULT_MODE) if enabled else DEFAULT_MODE
-        if enabled and wanted == SOFTWARE_BREATHING and _can_breathe(device):
-            self._start_breath(device, by_name, brightness, colours, options)
+        if FALLBACK_MODE in by_name and wanted in SOFTWARE_MODES and wanted in by_name:
+            self._draw(device, by_name, enabled, brightness, wanted, colours, options)
             return
-        self._breaths.pop(device.name, None)
+        self._glows.pop(device.name, None)
 
         if not enabled and OFF_MODE in by_name:
             device.set_mode(by_name[OFF_MODE])
@@ -334,6 +385,12 @@ def _takes_no_colours(mode) -> bool:
         return int(getattr(mode, "color_mode", 1)) == 0
     except (TypeError, ValueError):
         return False
+
+
+def _send_frame(glow: _Glow, level: float) -> None:
+    """Send the glow's current colours, dimmed to `level` (0.0 .. 1.0)."""
+    frame = [RGBColor(*(round(part * level) for part in colour)) for colour in glow.shown]
+    glow.device.set_colors(frame, fast=True)
 
 
 def _can_breathe(device) -> bool:

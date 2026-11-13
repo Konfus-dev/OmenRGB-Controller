@@ -20,6 +20,9 @@ own risk.
   gets "dimmest" and "brightest" sliders, on the case as well as the RAM.
 - **Auto mode:** optionally match the PC to the app you are using. The lights
   take the main colour of the focused app's icon and the LCD shows the icon.
+- **Smooth and light:** colours glide and the LCD crossfades when something
+  changes, everything goes dark when the PC sleeps, and the service does
+  almost nothing while the lights are steady.
 - **One place:** an "OMEN Lights" button next to Wi-Fi and Bluetooth that
   opens a settings window for all of it.
 - Your choices come back by themselves after a reboot.
