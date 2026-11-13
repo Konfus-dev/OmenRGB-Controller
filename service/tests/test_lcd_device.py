@@ -62,27 +62,6 @@ def test_write_delivers_bytes(pair):
     assert peer.recv(2048) == b"\x01\x46" + bytes(62)
 
 
-def test_request_returns_reply(pair):
-    device, peer = pair
-    peer.send(b"stale")  # left over from earlier; must be discarded
-    import threading
-
-    def answer():
-        peer.recv(2048)
-        peer.send(b"reply")
-
-    thread = threading.Thread(target=answer)
-    thread.start()
-    # "stale" is drained before the write, so the answer is the real reply.
-    assert device.request(b"ask", timeout_s=2) == b"reply"
-    thread.join()
-
-
-def test_request_returns_none_on_silence(pair):
-    device, _peer = pair
-    assert device.request(b"ask", timeout_s=0.05) is None
-
-
 def test_write_after_peer_closed_raises_oserror(pair):
     device, peer = pair
     peer.close()

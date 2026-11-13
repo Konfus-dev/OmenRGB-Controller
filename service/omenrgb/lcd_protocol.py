@@ -21,11 +21,6 @@ def claim_report() -> bytes:
     return bytes(report)
 
 
-def info_report() -> bytes:
-    """Ask the LCD for its name and firmware version."""
-    return bytes(_short_report(c.OP_INFO))
-
-
 def brightness_report(percent: int) -> bytes:
     """Set screen brightness. 0 is black, 100 is full."""
     report = bytearray(c.LONG_REPORT_LEN)
@@ -53,13 +48,3 @@ def frame_reports(jpeg: bytes) -> list[bytes]:
         report[c.CHUNK_DATA_OFFSET : c.CHUNK_DATA_OFFSET + len(chunk)] = chunk
         reports.append(bytes(report))
     return reports
-
-
-def is_claim_ack(reply: bytes) -> bool:
-    """True if `reply` is the LCD accepting our claim."""
-    return len(reply) > 5 and reply[1] == c.OP_CLAIM and reply[5] == c.CLAIM_ACK
-
-
-def parse_info(reply: bytes) -> str:
-    """The readable text in an info reply, e.g. '...OMEN-LCD-CAP,V3.05.024...'."""
-    return bytes(b for b in reply[2:] if 32 <= b < 127).decode("ascii")

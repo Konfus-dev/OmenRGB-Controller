@@ -17,19 +17,16 @@ LCD_SIZE = 480  # the screen is 480x480 pixels
 
 SHORT_REPORT_LEN = 64  # report ID 1, including the ID byte
 LONG_REPORT_LEN = 1024  # report ID 2 going out, including the ID byte
-LONG_REPLY_LEN = 512  # report ID 2 coming back
 
 REPORT_ID_SHORT = 0x01
 REPORT_ID_LONG = 0x02
 
-# The only four operations this project ever sends.
+# The only three operations this project ever sends.
 OP_CLAIM = 0x41
-OP_INFO = 0x46
 OP_BRIGHTNESS = 0x6C
 OP_FRAME = 0x6E
 
 CLAIM_REQUEST = 0x01  # value of byte 5 when we send a claim
-CLAIM_ACK = 0x07  # value of byte 5 in the LCD's answer
 
 # First 18 bytes of a brightness report, as captured from HP's software.
 BRIGHTNESS_HEAD = bytes.fromhex("026c00000001000001000804000000000019")

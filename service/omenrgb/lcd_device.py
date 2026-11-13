@@ -1,14 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Finds the cooler LCD and reads/writes raw reports to it.
+"""Finds the cooler LCD and writes raw reports to it.
 
 Uses the kernel's hidraw interface directly, so no extra library is needed.
 """
 
 import os
-import select
 from pathlib import Path
 
-from .constants import LCD_DESCRIPTOR_PREFIX, LCD_HID_ID, LONG_REPORT_LEN
+from .constants import LCD_DESCRIPTOR_PREFIX, LCD_HID_ID
 
 
 def find_hidraw(
@@ -50,21 +49,6 @@ class LcdDevice:
         if self._fd is None:
             raise OSError("LCD connection is closed")
         os.write(self._fd, report)
-
-    def request(self, report: bytes, timeout_s: float = 0.5) -> bytes | None:
-        """Send `report` and return the next thing the LCD says, or None.
-
-        The LCD answers slowly and sometimes one message behind, so check
-        that the reply is the one you wanted before trusting it.
-        """
-        if self._fd is None:
-            raise OSError("LCD connection is closed")
-        while select.select([self._fd], [], [], 0)[0]:  # discard old messages
-            os.read(self._fd, LONG_REPORT_LEN)
-        os.write(self._fd, report)
-        if select.select([self._fd], [], [], timeout_s)[0]:
-            return os.read(self._fd, LONG_REPORT_LEN)
-        return None
 
     def close(self) -> None:
         if self._fd is not None:
