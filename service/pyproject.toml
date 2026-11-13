@@ -22,7 +22,7 @@ line-length = 100
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-filterwarnings = ["ignore::DeprecationWarning:gi.overrides"]
+filterwarnings = ["ignore::DeprecationWarning:gi.*"]
 
 [tool.ruff.lint]
 # pycodestyle, pyflakes, import order, likely bugs, modern syntax.

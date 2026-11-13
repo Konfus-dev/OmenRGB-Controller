@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=OMEN Lights service (cooler LCD and case lights)
+After=openrgb-server.service
+Wants=openrgb-server.service
+
+[Service]
+ExecStart=%h/.local/share/omenrgb/venv/bin/python -m omenrgb
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

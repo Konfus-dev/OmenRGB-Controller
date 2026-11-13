@@ -169,3 +169,23 @@ def test_reconnect_after_error():
     assert lights.try_connect() is True
     lights.apply(True, 100, {}, {})
     assert good.mode == "Static"
+
+
+def test_check_keeps_healthy_connection():
+    client = SimpleNamespace(devices=[case()], update=lambda: None)
+    lights = Lights(lambda: client)
+    lights.try_connect()
+    assert lights.check() is True and lights.connected is True
+
+
+def test_check_detects_dead_connection():
+    def dead():
+        raise ConnectionResetError("OpenRGB went away")
+
+    lights = Lights(lambda: SimpleNamespace(devices=[case()], update=dead))
+    lights.try_connect()
+    assert lights.check() is False and lights.connected is False
+
+
+def test_check_when_never_connected():
+    assert Lights(lambda: SimpleNamespace(devices=[])).check() is False

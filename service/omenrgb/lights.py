@@ -75,6 +75,23 @@ class Lights:
         log.info("OpenRGB connected, %d device(s)", len(client.devices))
         return True
 
+    def check(self) -> bool:
+        """Ask OpenRGB for fresh device data to find out if it is still there.
+
+        Without this we would only notice OpenRGB had stopped the next time
+        a light setting changed.
+        """
+        if self._client is None:
+            return False
+        try:
+            self._client.update()
+        except Exception as error:
+            log.warning("Lost connection to OpenRGB: %s", error)
+            _disconnect(self._client)
+            self._client = None
+            return False
+        return True
+
     def devices(self) -> list[DeviceInfo]:
         if self._client is None:
             return []

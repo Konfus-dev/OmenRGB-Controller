@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=OpenRGB lighting server (no window), used by OMEN Lights
+
+[Service]
+# Listens on this computer only. --noautoconnect stops it from trying to
+# connect to another OpenRGB instead of being the server itself.
+ExecStart=/usr/bin/openrgb --server --server-host 127.0.0.1 --noautoconnect
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
