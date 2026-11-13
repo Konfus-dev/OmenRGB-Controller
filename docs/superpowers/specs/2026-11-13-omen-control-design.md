@@ -249,3 +249,35 @@ their own thing (one stick amber, one colour-cycling). Left out of v1.
 port opens, so a client must retry until devices appear. `openrgb-python`
 0.3.8 works on Python 3.14: `OpenRGBClient(host, port, name)`,
 `device.set_mode(...)`, `zone.set_color(RGBColor(r, g, b))`.
+
+## RAM lights (added 2026-11-13, approach approved by the owner)
+
+**Finding.** Talking to the RAM sticks' light controllers directly over SMBus
+(as OpenRGB does) jams the bus on this board until the next reboot; even a
+single read does it. HP's own OMEN Gaming Hub never does that. It sends the
+standard Kingston Fury register writes through the BIOS: WMI command
+`0x20009`, type `0x0A`, data `[register, value, stick address]`, where the
+address is `0xC0 + 2 * slot`. Sent that way from Linux (ACPI method
+`\_SB.WMID.WMAA`), both sticks obeyed and the bus stayed healthy.
+
+**Anti-goal, reworded.** Nothing in this project ever talks to the RAM over
+SMBus. RAM lighting goes through the BIOS only.
+
+**Approaches.** (A) a small root helper service using the packaged
+`acpi_call` module, (B) our own kernel module, (C) a password prompt per
+change. The owner picked A: no kernel code to maintain, existing package.
+
+**Design.**
+- `helper/omenrgb_ram_helper.py`: runs as root from a root-owned copy,
+  standard library only, started by systemd on demand through a socket that
+  only the installing user can open. It accepts one request, "write value V
+  to lighting register R of stick A", checks A, R and V against a fixed
+  list, checks that a stick is really in that slot, and passes it to the
+  BIOS. It can do nothing else.
+- `service/omenrgb/ram.py`: turns "mode, brightness, colour per stick" into
+  the register writes HP uses, and sends them to the helper. It presents the
+  RAM as one more lighting device ("RAM", zones "Stick 1", "Stick 2", ...),
+  so the settings window needs no change.
+- v1 effects: Static (one colour per stick), Rainbow, Breathing, and off.
+- Register meanings come from HP's module and from OpenRGB's
+  `KingstonFuryDRAMController` (GPL-2.0-or-later).

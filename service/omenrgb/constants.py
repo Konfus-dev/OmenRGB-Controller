@@ -58,6 +58,7 @@ OPENRGB_DETECTORS = ("HP Omen 30L",)
 # ("Device name/Zone name"). They are hidden from the settings window.
 # OpenRGB calls the 45L's lighting board "HP Omen 30L".
 HIDDEN_ZONES = (
+    "HP Omen 30L/Light Bar",
     "HP Omen 30L/Front Fan",
     "HP Omen 30L/CPU Cooler",
 )

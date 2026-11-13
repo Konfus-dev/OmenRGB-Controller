@@ -20,12 +20,14 @@ from .image_prep import ImageError, prepare_jpeg
 from .lcd_device import LcdDevice, find_hidraw
 from .lcd_streamer import LcdStreamer
 from .lights import Lights
+from .ram import RamLights
 from .settings import load_settings
 
 log = logging.getLogger(__name__)
 
 LCD_IMAGE_KEYS = ("lcd-image", "lcd-fit")
 LCD_BRIGHTNESS_KEYS = ("lcd-enabled", "lcd-brightness")
+RAM_DEBOUNCE_MS = 250
 LIGHT_KEYS = ("lights-enabled", "lights-brightness", "device-modes", "zone-colours")
 
 
@@ -36,11 +38,14 @@ class Service:
         streamer: LcdStreamer,
         lights: Lights,
         prepare: Callable[[Path, str], bytes] = prepare_jpeg,
+        ram: RamLights | None = None,
     ):
         self._settings = settings
         self._streamer = streamer
         self._lights = lights
         self._prepare = prepare
+        self._ram = ram  # None on machines without controllable RAM lights
+        self._ram_timer = 0  # GLib timer id while a RAM update is waiting
         self._error = ""  # last image problem, shown in the settings window
         self._sources: list[int] = []  # GLib timer ids, so stop() can remove them
         self._handler = 0
@@ -55,6 +60,8 @@ class Service:
         self._streamer.tick_reconnect()
         if self._lights.try_connect():
             self._update_lights()
+        if self._ram and self._ram.try_connect():
+            self.flush_ram()
         self.publish_status()
 
         self._sources = [
@@ -67,6 +74,9 @@ class Service:
         for source in self._sources:
             GLib.source_remove(source)
         self._sources = []
+        if self._ram_timer:
+            GLib.source_remove(self._ram_timer)
+            self._ram_timer = 0
         if self._handler:
             self._settings.disconnect(self._handler)
             self._handler = 0
@@ -87,6 +97,7 @@ class Service:
             self._update_lcd_brightness()
         elif key in LIGHT_KEYS:
             self._update_lights()
+            self._schedule_ram()
 
     def _update_lcd_image(self) -> None:
         path = self._settings.get_string("lcd-image")
@@ -109,12 +120,37 @@ class Service:
         self._streamer.set_brightness(self._settings.get_int("lcd-brightness") if enabled else 0)
 
     def _update_lights(self) -> None:
-        self._lights.apply(
+        self._lights.apply(*self._light_settings())
+
+    def _light_settings(self) -> tuple[bool, int, dict, dict]:
+        return (
             self._settings.get_boolean("lights-enabled"),
             self._settings.get_int("lights-brightness"),
             self._settings.get_value("device-modes").unpack(),
             self._settings.get_value("zone-colours").unpack(),
         )
+
+    def _schedule_ram(self) -> None:
+        """Update the RAM lights shortly, once, however many changes arrive.
+
+        A RAM update takes a few tenths of a second, so while a slider is
+        being dragged only the final value is worth sending.
+        """
+        if self._ram and not self._ram_timer:
+            self._ram_timer = GLib.timeout_add(RAM_DEBOUNCE_MS, self._on_ram_timer)
+
+    def _on_ram_timer(self) -> bool:
+        self._ram_timer = 0
+        self.flush_ram()
+        return False  # one-shot timer
+
+    def flush_ram(self) -> None:
+        """Send the current light settings to the RAM sticks now."""
+        if self._ram_timer:
+            GLib.source_remove(self._ram_timer)
+            self._ram_timer = 0
+        if self._ram:
+            self._ram.apply(*self._light_settings())
 
     # --- housekeeping --------------------------------------------------------
 
@@ -123,6 +159,8 @@ class Service:
         self._streamer.tick_reconnect()
         if not self._lights.check() and self._lights.try_connect():
             self._update_lights()
+        if self._ram and not self._ram.check() and self._ram.try_connect():
+            self.flush_ram()
         self.publish_status()
 
     def publish_status(self) -> None:
@@ -131,10 +169,11 @@ class Service:
             {
                 "lcd": self._streamer.connected,
                 "openrgb": self._lights.connected,
+                "ram": bool(self._ram and self._ram.connected),
                 "error": self._error,
                 "devices": [
                     {"name": d.name, "modes": list(d.modes), "zones": list(d.zones)}
-                    for d in self._lights.devices()
+                    for d in self._lights.devices() + (self._ram.devices() if self._ram else [])
                 ],
             }
         )
@@ -176,7 +215,9 @@ def main(argv: list[str] | None = None) -> int:
         log.error("%s", error)
         return 1
 
-    service = Service(settings, LcdStreamer(_open_lcd), Lights(_connect_openrgb, c.HIDDEN_ZONES))
+    service = Service(
+        settings, LcdStreamer(_open_lcd), Lights(_connect_openrgb, c.HIDDEN_ZONES), ram=RamLights()
+    )
     loop = GLib.MainLoop()
     for signum in (signal.SIGINT, signal.SIGTERM):
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, loop.quit)

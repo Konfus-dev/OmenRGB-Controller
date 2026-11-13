@@ -34,7 +34,8 @@ class FakeStreamer:
 
 
 class FakeLights:
-    def __init__(self, available=True):
+    def __init__(self, available=True, name="Case"):
+        self.name = name
         self.available = available  # what try_connect will answer
         self.connected = False
         self.applied = []
@@ -50,7 +51,7 @@ class FakeLights:
     def devices(self):
         if not self.connected:
             return []
-        return [DeviceInfo("Case", ("Static", "Off"), ("Logo", "Top Fan"))]
+        return [DeviceInfo(self.name, ("Static", "Off"), ("Logo", "Top Fan"))]
 
     def apply(self, enabled, brightness, modes, colours):
         self.applied.append((enabled, brightness, modes, colours))
@@ -91,6 +92,7 @@ def test_start_applies_everything_once(parts):
     assert status(settings) == {
         "lcd": True,
         "openrgb": True,
+        "ram": False,
         "error": "",
         "devices": [{"name": "Case", "modes": ["Static", "Off"], "zones": ["Logo", "Top Fan"]}],
     }
@@ -228,3 +230,52 @@ def test_openrgb_going_away_is_noticed_and_recovered(parts):
     service.tick_slow()
     assert status(settings)["openrgb"] is True
     assert len(lights.applied) == 2  # lights were set again after the restart
+
+
+@pytest.fixture
+def with_ram(settings):
+    ram = FakeLights(name="RAM")
+    service = Service(settings, FakeStreamer(), FakeLights(), FakePrepare(), ram=ram)
+    yield service, settings, ram
+    service.stop()
+
+
+def test_ram_is_listed_after_the_case_lights(with_ram):
+    service, settings, _ram = with_ram
+    service.start()
+    assert status(settings)["ram"] is True
+    assert [d["name"] for d in status(settings)["devices"]] == ["Case", "RAM"]
+
+
+def test_ram_gets_the_same_settings_as_the_case_lights(with_ram):
+    service, settings, ram = with_ram
+    service.start()
+    assert ram.applied == [(True, 100, {}, {})]
+    settings.set_int("lights-brightness", 30)
+    service.on_changed("lights-brightness")
+    service.flush_ram()
+    assert ram.applied[-1] == (True, 30, {}, {})
+
+
+def test_ram_changes_are_batched(with_ram):
+    # Dragging a slider fires many changes; the RAM is slow to update, so
+    # only the final value is sent.
+    service, settings, ram = with_ram
+    service.start()
+    for value in (90, 80, 70):
+        settings.set_int("lights-brightness", value)
+        service.on_changed("lights-brightness")
+    assert len(ram.applied) == 1  # nothing sent yet
+    service.flush_ram()
+    assert len(ram.applied) == 2 and ram.applied[-1][1] == 70
+
+
+def test_ram_helper_appearing_later_is_picked_up(settings):
+    ram = FakeLights(available=False, name="RAM")
+    service = Service(settings, FakeStreamer(), FakeLights(), FakePrepare(), ram=ram)
+    service.start()
+    assert status(settings)["ram"] is False and ram.applied == []
+    ram.available = True
+    service.tick_slow()
+    assert status(settings)["ram"] is True and len(ram.applied) == 1
+    service.stop()

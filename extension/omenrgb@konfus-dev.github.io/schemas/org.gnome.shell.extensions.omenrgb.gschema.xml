@@ -58,7 +58,7 @@
     <key name="status" type="s">
       <default>'{}'</default>
       <summary>Written by the service only</summary>
-      <description>JSON: {"lcd": bool, "openrgb": bool, "error": str, "devices": [{"name": str, "modes": [str], "zones": [str]}]}</description>
+      <description>JSON: {"lcd": bool, "openrgb": bool, "ram": bool, "error": str, "devices": [{"name": str, "modes": [str], "zones": [str]}]}</description>
     </key>
 
   </schema>
