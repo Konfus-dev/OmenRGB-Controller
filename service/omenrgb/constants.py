@@ -51,6 +51,9 @@ RECONNECT_INTERVAL_S = 5
 # --- OpenRGB (drives the case lights) ----------------------------------------
 OPENRGB_HOST = "127.0.0.1"
 OPENRGB_PORT = 6742
+# The only OpenRGB hardware detectors left switched on (see openrgb_config.py).
+# "HP Omen 30L" is OpenRGB's name for the 45L's case-light board.
+OPENRGB_DETECTORS = ("HP Omen 30L",)
 # Light zones OpenRGB lists that have nothing attached on the OMEN 45L
 # ("Device name/Zone name"). They are hidden from the settings window.
 # OpenRGB calls the 45L's lighting board "HP Omen 30L".

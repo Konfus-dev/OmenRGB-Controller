@@ -29,12 +29,25 @@ mkdir -p "$extensions"
 ln -sfn "$repo/extension/$uuid" "$extensions/$uuid"
 glib-compile-schemas --strict "$repo/extension/$uuid/schemas"
 
+echo "==> OpenRGB limited to the case-light board"
+orgb="$HOME/.config/omenrgb/openrgb"
+known="$("$venv/bin/python" -m omenrgb.openrgb_config "$orgb" "$HOME/.config/OpenRGB/OpenRGB.json")"
+if (( known < 100 )); then
+    # OpenRGB only writes down the names of its detectors after one full
+    # hardware scan. Do that scan once, then switch the detectors off.
+    echo "    One-time full hardware scan (takes about 30 seconds)."
+    echo "    RAM temperature sensors may stop reporting until the next reboot."
+    systemctl --user stop openrgb-server.service 2>/dev/null || true
+    timeout 120 openrgb --config "$orgb" --noautoconnect --list-devices >/dev/null 2>&1 || true
+    "$venv/bin/python" -m omenrgb.openrgb_config "$orgb" >/dev/null
+fi
+
 echo "==> Background services"
 mkdir -p "$units"
 install -m 0644 "$repo/systemd/openrgb-server.service" "$repo/systemd/omenrgb.service" "$units/"
 systemctl --user daemon-reload
 systemctl --user enable --now openrgb-server.service omenrgb.service
-systemctl --user restart omenrgb.service
+systemctl --user restart openrgb-server.service omenrgb.service
 
 echo
 echo "Done. If this is the first install: log out and back in once, then run"
