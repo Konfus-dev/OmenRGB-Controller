@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Lets the logged-in user talk to the HP OMEN 45L cooler LCD ("LCD-PUMP").
+KERNEL=="hidraw*", ATTRS{idVendor}=="03f0", ATTRS{idProduct}=="7397", TAG+="uaccess"

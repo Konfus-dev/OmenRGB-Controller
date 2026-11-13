@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Installed by install/setup.sh, which replaces @USER@ with your user name.
+[Unit]
+Description=OMEN Lights RAM helper socket
+
+[Socket]
+ListenStream=/run/omenrgb-ram.sock
+# Only this user may talk to the root helper.
+SocketUser=@USER@
+SocketMode=0600
+
+[Install]
+WantedBy=sockets.target

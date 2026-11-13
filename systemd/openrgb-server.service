@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=OpenRGB lighting server (no window), used by OMEN Lights
+
+[Service]
+# Listens on this computer only. --noautoconnect stops it from trying to
+# connect to another OpenRGB instead of being the server itself.
+#
+# OpenRGB gets its own settings folder in which every hardware detector is
+# off except the case-light board. Its normal RAM probing makes the RAM's
+# control bus on the OMEN 45L stop responding until the next reboot.
+ExecStartPre=%h/.local/share/omenrgb/venv/bin/python -m omenrgb.openrgb_config %h/.config/omenrgb/openrgb %h/.config/OpenRGB/OpenRGB.json
+ExecStart=/usr/bin/openrgb --server --server-host 127.0.0.1 --noautoconnect --config %h/.config/omenrgb/openrgb
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

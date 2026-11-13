@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# The only part of OMEN Lights that runs as root. Started on demand by
+# omenrgb-ram.socket. See helper/omenrgb_ram_helper.py for what it may do.
+[Unit]
+Description=OMEN Lights RAM helper (sets RAM lighting through the BIOS)
+
+[Service]
+# A root-owned copy, so the root service never runs code a user can edit.
+ExecStart=/usr/bin/python3 -I /usr/local/lib/omenrgb/omenrgb_ram_helper.py
+Restart=on-failure
+# It needs /proc/acpi/call and nothing else.
+NoNewPrivileges=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+MemoryMax=32M
