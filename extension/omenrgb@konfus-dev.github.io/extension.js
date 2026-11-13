@@ -90,10 +90,13 @@ export default class OmenLightsExtension extends Extension {
         this._focusId = this._tracker.connect('notify::focus-app', () => this._publishFocus());
         // Report straight away when auto mode is switched on.
         this._autoId = this._settings.connect('changed::auto-enabled', () => this._publishFocus());
+        // Forget whatever app the last session ended on, then report afresh.
+        this._settings.set_string('focused-app', '');
         this._publishFocus();
     }
 
     _stopFocusTracking() {
+        this._settings?.set_string('focused-app', '');
         if (this._focusId)
             this._tracker.disconnect(this._focusId);
         if (this._autoId)

@@ -423,3 +423,12 @@ def test_a_quick_refusal_is_retried_straight_away():
     lights.try_connect()
     lights.try_connect()
     assert len(attempts) == 2
+
+
+def test_forget_restarts_a_breath_from_scratch():
+    # After sleep the board may have left direct mode; say so again.
+    lights, device = breathing()
+    device.mode = None
+    lights.forget()
+    lights.apply(True, 100, {"Case": "Breathing"}, {})
+    assert device.mode == "Direct" and lights.animating is True

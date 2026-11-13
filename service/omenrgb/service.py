@@ -62,6 +62,9 @@ class Service:
         self._display_names = display_names or {}
         self._looks = looks  # None switches auto mode off entirely
         self._look: Look | None = None  # what auto mode wants shown right now
+        self._sent_auto_colour: str | None = None  # auto colour last sent to the lights
+        self._own_jpeg: bytes | None = None  # the owner's chosen picture, LCD-ready
+        self._shown_jpeg: bytes | None = None  # what the LCD was last told to show
         self._lights_timer = 0  # GLib timer id while a lights update is waiting
         self._animation_timer = 0  # GLib timer id while an effect is being animated
         self._image_monitor = None  # watches the chosen LCD image file
@@ -76,7 +79,8 @@ class Service:
         """Apply the current settings, then keep everything up to date."""
         self._handler = self._settings.connect("changed", lambda _s, key: self.on_changed(key))
         self._refresh_look()
-        self._update_lcd_image()
+        self._load_own_image()
+        self._show_lcd_image()
         self._update_lcd_brightness()
         self._streamer.tick_reconnect()
         if self._lights.try_connect():
@@ -121,7 +125,8 @@ class Service:
     def on_changed(self, key: str) -> None:
         """Called whenever one setting changes."""
         if key in LCD_IMAGE_KEYS:
-            self._update_lcd_image()
+            self._load_own_image()
+            self._show_lcd_image()
             self.publish_status()
         elif key in LCD_BRIGHTNESS_KEYS:
             self._update_lcd_brightness()
@@ -129,8 +134,9 @@ class Service:
             self._schedule_lights()
         elif key in AUTO_KEYS:
             self._refresh_look()
-            self._update_lcd_image()
-            self._schedule_lights()
+            self._show_lcd_image()
+            if self._auto_colour() != self._sent_auto_colour:
+                self._schedule_lights()  # only when the lights would really change
             self.publish_status()
 
     # --- auto mode -------------------------------------------------------------
@@ -179,45 +185,61 @@ class Service:
 
     def on_image_file_changed(self) -> None:
         """The chosen image was edited on disk: show the new version."""
-        self._update_lcd_image()
+        self._load_own_image()
+        self._show_lcd_image()
         self.publish_status()
 
     def on_resume(self) -> None:
         """The computer woke from sleep: the hardware may have forgotten its
         settings, so send them all again."""
         log.info("Woke from sleep; re-applying lights")
+        self._lights.forget()
         if self._ram:
             self._ram.forget()
         self.flush_lights()
 
-    def _update_lcd_image(self) -> None:
+    def _load_own_image(self) -> None:
+        """Read the owner's chosen picture from disk and get it LCD-ready.
+
+        Done only when the choice or the file changes, never on every app
+        switch: decoding a large photo takes long enough to make the LCD and
+        a breathing effect stutter.
+        """
         path = self._settings.get_string("lcd-image")
         self._watch_image_file(path or None)
-        if (auto := self._auto_lcd()) is not None:
-            self._streamer.set_image(auto)  # the focused app's icon
-            return
         if not path:
-            self._streamer.set_image(None)
-            self._error = ""
+            self._own_jpeg, self._error = None, ""
             return
         try:
-            jpeg = self._prepare(Path(path), self._settings.get_string("lcd-fit"))
+            self._own_jpeg = self._prepare(Path(path), self._settings.get_string("lcd-fit"))
+            self._error = ""
         except Exception as error:
-            # Normally an ImageError. Either way: keep showing whatever was
-            # there before, and never let a bad picture stop the service.
+            # Normally an ImageError. Either way: keep the previous picture,
+            # and never let a bad one stop the service.
             log.warning("%s", error)
             self._error = str(error)
-            return
-        self._error = ""
-        self._streamer.set_image(jpeg)
+
+    def _show_lcd_image(self) -> None:
+        """Put the right picture on the LCD: auto mode's, else the owner's."""
+        auto = self._auto_lcd()
+        picture = auto if auto is not None else self._own_jpeg
+        if picture != self._shown_jpeg:
+            self._shown_jpeg = picture
+            self._streamer.set_image(picture)
 
     def _update_lcd_brightness(self) -> None:
         enabled = self._settings.get_boolean("lcd-enabled")
         self._streamer.set_brightness(self._settings.get_int("lcd-brightness") if enabled else 0)
 
     def _update_lights(self) -> None:
+        self._sent_auto_colour = self._auto_colour()
         self._lights.apply(*self._light_settings())
         self._sync_animation_timer()
+
+    @property
+    def lights_update_pending(self) -> bool:
+        """True while a batched lights update is waiting to be sent."""
+        return bool(self._lights_timer)
 
     @property
     def animation_running(self) -> bool:
@@ -360,8 +382,13 @@ def _connect_openrgb():
 RESUME_SETTLE_S = 3  # give USB devices a moment to come back after sleep
 
 
-def _watch_for_resume(service: Service) -> None:
-    """Call service.on_resume() whenever the computer wakes from sleep."""
+def _watch_for_resume(service: Service) -> Gio.DBusConnection | None:
+    """Call service.on_resume() whenever the computer wakes from sleep.
+
+    The caller must keep the returned connection for as long as it wants the
+    notifications: GLib drops the connection, and the subscription with it,
+    once nothing refers to it any more.
+    """
 
     def on_signal(_bus, _sender, _path, _iface, _signal, parameters) -> None:
         (going_to_sleep,) = parameters.unpack()
@@ -376,7 +403,7 @@ def _watch_for_resume(service: Service) -> None:
         bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
     except GLib.Error as error:
         log.warning("Cannot watch for sleep/resume: %s", error)
-        return
+        return None
     bus.signal_subscribe(
         "org.freedesktop.login1",
         "org.freedesktop.login1.Manager",
@@ -386,6 +413,7 @@ def _watch_for_resume(service: Service) -> None:
         Gio.DBusSignalFlags.NONE,
         on_signal,
     )
+    return bus
 
 
 def default_schema_dir() -> Path:
@@ -423,8 +451,9 @@ def main(argv: list[str] | None = None) -> int:
     for signum in (signal.SIGINT, signal.SIGTERM):
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, loop.quit)
     service.start()
-    _watch_for_resume(service)
+    system_bus = _watch_for_resume(service)  # kept alive until we exit
     log.info("omenrgb service running")
     loop.run()
+    del system_bus
     service.stop()
     return 0

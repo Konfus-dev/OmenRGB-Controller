@@ -50,6 +50,9 @@ class FakeLights:
 
     animating = False  # tests set this to pretend a breath is running
 
+    def forget(self):
+        pass
+
     def tick_animation(self, now):
         self.animation_ticks = getattr(self, "animation_ticks", 0) + 1
 
@@ -80,7 +83,7 @@ class FakePrepare:
         self.calls.append((path, fit))
         if self.error:
             raise ImageError(self.error)
-        return f"jpeg of {path.name} ({fit})".encode()
+        return f"jpeg of {path.name} ({fit}){getattr(self, 'version', '')}".encode()
 
 
 @pytest.fixture
@@ -395,8 +398,17 @@ def test_stopping_clears_the_status_so_the_window_knows(parts):
 def test_edited_image_file_is_reloaded(parts):
     service, _settings, streamer, _lights, prepare = parts
     service.start()
+    prepare.version = " v2"  # the file now has different contents
     service.on_image_file_changed()  # what the file monitor calls
-    assert len(prepare.calls) == 2 and len(streamer.images) == 2
+    assert len(prepare.calls) == 2
+    assert streamer.images == [b"jpeg of cat.png (fill)", b"jpeg of cat.png (fill) v2"]
+
+
+def test_an_unchanged_picture_is_not_sent_to_the_lcd_again(parts):
+    service, _settings, streamer, _lights, _prepare = parts
+    service.start()
+    service.on_image_file_changed()  # touched, but the picture is the same
+    assert len(streamer.images) == 1
 
 
 def test_resume_from_sleep_sends_everything_again(with_ram):
@@ -491,3 +503,44 @@ def test_switching_auto_off_restores_the_normal_look(auto):
     service.flush_lights()
     assert streamer.images[-1] == b"jpeg of cat.png (fill)"
     assert lights.applied[-1][3] == {"Case/Logo": "#0000FF"}
+
+
+def test_switching_apps_does_not_reload_the_picture_from_disk(auto):
+    service, settings, _streamer, _lights = auto
+    settings.set_boolean("auto-enabled", True)
+    service.on_changed("auto-enabled")
+    prepare = service._prepare
+    before = len(prepare.calls)
+    for app in ("mystery.desktop", "firefox.desktop", "other.desktop"):
+        focus(service, settings, app)
+    assert len(prepare.calls) == before  # decoding a big photo on every alt-tab would stutter
+
+
+def test_case_lights_are_not_resent_when_the_auto_colour_is_unchanged(auto):
+    service, settings, _streamer, lights = auto
+    settings.set_boolean("auto-enabled", True)
+    focus(service, settings, "mystery.desktop")
+    settings.set_string("focused-app", "another-unknown.desktop")  # still the normal look
+    service.on_changed("focused-app")
+    assert service.lights_update_pending is False
+    settings.set_string("focused-app", "firefox.desktop")  # now the colour changes
+    service.on_changed("focused-app")
+    assert service.lights_update_pending is True
+
+
+def test_a_broken_picture_is_reported_even_while_an_app_icon_is_shown(auto):
+    service, settings, _streamer, _lights = auto
+    settings.set_boolean("auto-enabled", True)
+    focus(service, settings, "firefox.desktop")
+    service._prepare.error = "boom"
+    service.on_image_file_changed()
+    assert status(settings)["error"] == "boom"
+
+
+def test_resume_also_makes_the_case_lights_start_over(parts):
+    service, _settings, _streamer, lights, _prepare = parts
+    service.start()
+    lights.forgotten = False
+    lights.forget = lambda: setattr(lights, "forgotten", True)
+    service.on_resume()
+    assert lights.forgotten is True

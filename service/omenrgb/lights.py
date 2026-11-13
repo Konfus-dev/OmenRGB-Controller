@@ -236,6 +236,11 @@ class Lights:
         self._client = None
         self._breaths.clear()
 
+    def forget(self) -> None:
+        """Assume the hardware has lost its state (after sleep): the next
+        apply sets everything up from scratch, including direct mode."""
+        self._breaths.clear()
+
     # --- breathing, animated by us -------------------------------------------------
 
     @property
