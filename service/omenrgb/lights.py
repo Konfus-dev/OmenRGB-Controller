@@ -7,7 +7,7 @@ or restart at any time; nothing in here raises because of that.
 """
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 
 from openrgb.utils import RGBColor
@@ -48,10 +48,13 @@ class DeviceInfo:
 
 
 class Lights:
-    def __init__(self, connect: Callable[[], object]):
+    def __init__(self, connect: Callable[[], object], hidden_zones: Collection[str] = ()):
         """`connect` returns an openrgb.OpenRGBClient, or raises if OpenRGB
-        is not running."""
+        is not running. `hidden_zones` are zone_key() names that OpenRGB
+        reports but that have no lights attached; they are never shown or
+        written to."""
         self._connect = connect
+        self._hidden = frozenset(hidden_zones)
         self._client = None
 
     @property
@@ -99,10 +102,13 @@ class Lights:
             DeviceInfo(
                 device.name,
                 tuple(mode.name for mode in device.modes),
-                tuple(zone.name for zone in device.zones),
+                tuple(zone.name for zone in self._visible_zones(device)),
             )
             for device in self._client.devices
         ]
+
+    def _visible_zones(self, device) -> list:
+        return [z for z in device.zones if zone_key(device.name, z.name) not in self._hidden]
 
     def apply(
         self, enabled: bool, brightness: int, modes: dict[str, str], colours: dict[str, str]
@@ -130,6 +136,7 @@ class Lights:
         by_name = {mode.name: mode for mode in device.modes}
         if not by_name:
             return
+        zones = self._visible_zones(device)
         zone_colours = [
             RGBColor(
                 *scale_colour(
@@ -137,7 +144,7 @@ class Lights:
                     brightness if enabled else 0,
                 )
             )
-            for zone in device.zones
+            for zone in zones
         ]
 
         if not enabled and OFF_MODE in by_name:
@@ -156,7 +163,7 @@ class Lights:
 
         # A plain mode (Static, Direct): one colour per zone.
         device.set_mode(mode)
-        for zone, colour in zip(device.zones, zone_colours, strict=True):
+        for zone, colour in zip(zones, zone_colours, strict=True):
             zone.set_color(colour)
 
 

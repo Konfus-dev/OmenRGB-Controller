@@ -189,3 +189,30 @@ def test_check_detects_dead_connection():
 
 def test_check_when_never_connected():
     assert Lights(lambda: SimpleNamespace(devices=[])).check() is False
+
+
+def hidden_setup():
+    device = FakeDevice(
+        "Case", ["Static", "Breathing"], ["Logo", "Dead", "Fan"], palettes={"Breathing": 4}
+    )
+    lights = Lights(lambda: SimpleNamespace(devices=[device]), hidden_zones={"Case/Dead"})
+    lights.try_connect()
+    return lights, device
+
+
+def test_hidden_zones_are_not_listed():
+    lights, _device = hidden_setup()
+    assert lights.devices() == [DeviceInfo("Case", ("Static", "Breathing"), ("Logo", "Fan"))]
+
+
+def test_hidden_zones_are_not_written():
+    lights, device = hidden_setup()
+    lights.apply(True, 100, {}, {"Case/Dead": "#FF0000"})
+    assert [z.colour for z in device.zones] == [(255, 255, 255), None, (255, 255, 255)]
+
+
+def test_hidden_zones_stay_out_of_effect_palettes():
+    lights, device = hidden_setup()
+    lights.apply(True, 100, {"Case": "Breathing"}, {"Case/Logo": "#FF0000", "Case/Fan": "#0000FF"})
+    palette = next(m for m in device.modes if m.name == "Breathing").colors
+    assert [rgb(c) for c in palette] == [(255, 0, 0), (0, 0, 255), (255, 0, 0), (0, 0, 255)]

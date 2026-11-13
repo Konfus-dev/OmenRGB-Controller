@@ -51,6 +51,13 @@ RECONNECT_INTERVAL_S = 5
 # --- OpenRGB (drives the case lights) ----------------------------------------
 OPENRGB_HOST = "127.0.0.1"
 OPENRGB_PORT = 6742
+# Light zones OpenRGB lists that have nothing attached on the OMEN 45L
+# ("Device name/Zone name"). They are hidden from the settings window.
+# OpenRGB calls the 45L's lighting board "HP Omen 30L".
+HIDDEN_ZONES = (
+    "HP Omen 30L/Front Fan",
+    "HP Omen 30L/CPU Cooler",
+)
 
 # --- Settings shared with the GNOME Shell extension --------------------------
 SCHEMA_ID = "org.gnome.shell.extensions.omenrgb"

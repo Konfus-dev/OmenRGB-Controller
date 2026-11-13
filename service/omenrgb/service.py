@@ -176,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
         log.error("%s", error)
         return 1
 
-    service = Service(settings, LcdStreamer(_open_lcd), Lights(_connect_openrgb))
+    service = Service(settings, LcdStreamer(_open_lcd), Lights(_connect_openrgb, c.HIDDEN_ZONES))
     loop = GLib.MainLoop()
     for signum in (signal.SIGINT, signal.SIGTERM):
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, loop.quit)
