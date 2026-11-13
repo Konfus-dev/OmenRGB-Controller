@@ -59,6 +59,8 @@ class Service:
         self._display_names = display_names or {}
         self._lights_timer = 0  # GLib timer id while a lights update is waiting
         self._animation_timer = 0  # GLib timer id while an effect is being animated
+        self._image_monitor = None  # watches the chosen LCD image file
+        self._watched_path: str | None = None
         self._error = ""  # last image problem, shown in the settings window
         self._sources: list[int] = []  # GLib timer ids, so stop() can remove them
         self._handler = 0
@@ -91,9 +93,12 @@ class Service:
             if timer:
                 GLib.source_remove(timer)
         self._lights_timer = self._animation_timer = 0
+        self._watch_image_file(None)
         if self._handler:
             self._settings.disconnect(self._handler)
             self._handler = 0
+            # Tell the settings window nobody is driving the hardware now.
+            self._settings.set_string("status", "{}")
 
     @staticmethod
     def _repeat(tick: Callable[[], None]) -> bool:
@@ -117,8 +122,44 @@ class Service:
         elif key in LIGHT_KEYS:
             self._schedule_lights()
 
+    def _watch_image_file(self, path: str | None) -> None:
+        """Notice when the chosen image file is edited or replaced."""
+        if path == self._watched_path:
+            return
+        if self._image_monitor:
+            self._image_monitor.cancel()
+        self._image_monitor, self._watched_path = None, path
+        if path:
+            try:
+                self._image_monitor = Gio.File.new_for_path(path).monitor_file(
+                    Gio.FileMonitorFlags.NONE, None
+                )
+            except GLib.Error as error:
+                log.debug("Cannot watch %s: %s", path, error)
+                return
+            self._image_monitor.connect("changed", self._on_image_monitor_event)
+
+    def _on_image_monitor_event(self, _monitor, _file, _other, event) -> None:
+        # CHANGES_DONE_HINT arrives once the program saving the file is done.
+        if event in (Gio.FileMonitorEvent.CHANGES_DONE_HINT, Gio.FileMonitorEvent.CREATED):
+            self._repeat(self.on_image_file_changed)
+
+    def on_image_file_changed(self) -> None:
+        """The chosen image was edited on disk: show the new version."""
+        self._update_lcd_image()
+        self.publish_status()
+
+    def on_resume(self) -> None:
+        """The computer woke from sleep: the hardware may have forgotten its
+        settings, so send them all again."""
+        log.info("Woke from sleep; re-applying lights")
+        if self._ram:
+            self._ram.forget()
+        self.flush_lights()
+
     def _update_lcd_image(self) -> None:
         path = self._settings.get_string("lcd-image")
+        self._watch_image_file(path or None)
         if not path:
             self._streamer.set_image(None)
             self._error = ""
@@ -269,7 +310,42 @@ def _open_lcd() -> LcdDevice | None:
 def _connect_openrgb():
     from openrgb import OpenRGBClient  # imported late: it is slow to load
 
-    return OpenRGBClient(c.OPENRGB_HOST, c.OPENRGB_PORT, "omenrgb")
+    client = OpenRGBClient(c.OPENRGB_HOST, c.OPENRGB_PORT, "omenrgb")
+    # The library waits up to 10 seconds for each answer by default, which
+    # would freeze this service (and the LCD) if OpenRGB ever hung.
+    client.comms.sock.settimeout(c.OPENRGB_TIMEOUT_S)
+    return client
+
+
+RESUME_SETTLE_S = 3  # give USB devices a moment to come back after sleep
+
+
+def _watch_for_resume(service: Service) -> None:
+    """Call service.on_resume() whenever the computer wakes from sleep."""
+
+    def on_signal(_bus, _sender, _path, _iface, _signal, parameters) -> None:
+        (going_to_sleep,) = parameters.unpack()
+        if not going_to_sleep:
+            GLib.timeout_add_seconds(RESUME_SETTLE_S, _once, service.on_resume)
+
+    def _once(callback) -> bool:
+        Service._repeat(callback)
+        return False
+
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+    except GLib.Error as error:
+        log.warning("Cannot watch for sleep/resume: %s", error)
+        return
+    bus.signal_subscribe(
+        "org.freedesktop.login1",
+        "org.freedesktop.login1.Manager",
+        "PrepareForSleep",
+        "/org/freedesktop/login1",
+        None,
+        Gio.DBusSignalFlags.NONE,
+        on_signal,
+    )
 
 
 def default_schema_dir() -> Path:
@@ -306,6 +382,7 @@ def main(argv: list[str] | None = None) -> int:
     for signum in (signal.SIGINT, signal.SIGTERM):
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, loop.quit)
     service.start()
+    _watch_for_resume(service)
     log.info("omenrgb service running")
     loop.run()
     service.stop()

@@ -8,6 +8,7 @@ or restart at any time; nothing in here raises because of that.
 
 import logging
 import math
+import time
 from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 
@@ -25,6 +26,12 @@ DEFAULT_COLOUR = "#FFFFFF"  # used for a zone with no saved colour
 # doing it ourselves gives a real speed, dimmest and brightest setting. It
 # needs FALLBACK_MODE ("Direct"), in which the board shows whatever colours
 # it is sent.
+# If a connection attempt hangs this long before failing, OpenRGB is in a
+# bad way; do not try again for a while, because each try holds up the rest
+# of the service (which has an LCD to keep fed).
+SLOW_FAILURE_S = 2.0
+RETRY_AFTER_SLOW_FAILURE_S = 60
+
 SOFTWARE_BREATHING = "Breathing"
 BREATH_SLOWEST_S, BREATH_FASTEST_S = 8.0, 1.0  # length of one breath in and out
 
@@ -108,6 +115,7 @@ class Lights:
         connect: Callable[[], object],
         hidden_zones: Collection[str] = (),
         gamma: float = 1.0,
+        clock: Callable[[], float] = time.monotonic,
     ):
         """`connect` returns an openrgb.OpenRGBClient, or raises if OpenRGB
         is not running. `hidden_zones` are zone_key() names that OpenRGB
@@ -117,6 +125,8 @@ class Lights:
         self._hidden = frozenset(hidden_zones)
         self._gamma = gamma  # see scale_colour
         self._breaths: dict[str, _Breath] = {}  # device name -> running breath
+        self._clock = clock
+        self._retry_at = 0.0  # do not try to connect before this time
         self._client = None
 
     @property
@@ -127,6 +137,9 @@ class Lights:
         """Connect if not connected. True once OpenRGB has devices for us."""
         if self._client is not None:
             return True
+        started = self._clock()
+        if started < self._retry_at:
+            return False
         try:
             client = self._connect()
             if not client.devices:
@@ -135,6 +148,8 @@ class Lights:
                 return False
         except Exception as error:  # the library raises many different types
             log.debug("OpenRGB not available: %s", error)
+            if self._clock() - started > SLOW_FAILURE_S:
+                self._retry_at = self._clock() + RETRY_AFTER_SLOW_FAILURE_S
             return False
         self._client = client
         log.info("OpenRGB connected, %d device(s)", len(client.devices))

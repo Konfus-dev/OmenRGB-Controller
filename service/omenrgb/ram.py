@@ -228,6 +228,13 @@ class RamLights:
     def _back_off(self) -> None:
         self._retry_at = self._clock() + RETRY_AFTER_FAILURE_S
 
+    def forget(self) -> None:
+        """Send everything again on the next apply, even if nothing changed.
+
+        Used after sleep, when the sticks may have lost their settings.
+        """
+        self._last_sent = None
+
     def check(self) -> bool:
         return self.connected
 

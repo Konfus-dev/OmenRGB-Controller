@@ -48,6 +48,7 @@ RECONNECT_INTERVAL_S = 5
 # --- OpenRGB (drives the case lights) ----------------------------------------
 OPENRGB_HOST = "127.0.0.1"
 OPENRGB_PORT = 6742
+OPENRGB_TIMEOUT_S = 2.0  # how long to wait for OpenRGB to answer a request
 # The only OpenRGB hardware detectors left switched on (see openrgb_config.py).
 # "HP Omen 30L" is OpenRGB's name for the 45L's case-light board.
 OPENRGB_DETECTORS = ("HP Omen 30L",)

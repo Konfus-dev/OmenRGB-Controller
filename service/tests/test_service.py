@@ -381,3 +381,28 @@ def test_animation_timer_only_runs_while_something_is_animated(parts):
     lights.animating = False
     service.flush_lights()
     assert service.animation_running is False
+
+
+def test_stopping_clears_the_status_so_the_window_knows(parts):
+    service, settings, _streamer, _lights, _prepare = parts
+    service.start()
+    assert status(settings) != {}
+    service.stop()
+    assert settings.get_string("status") == "{}"
+
+
+def test_edited_image_file_is_reloaded(parts):
+    service, _settings, streamer, _lights, prepare = parts
+    service.start()
+    service.on_image_file_changed()  # what the file monitor calls
+    assert len(prepare.calls) == 2 and len(streamer.images) == 2
+
+
+def test_resume_from_sleep_sends_everything_again(with_ram):
+    service, _settings, ram = with_ram
+    service.start()
+    ram.forgotten = False
+    ram.forget = lambda: setattr(ram, "forgotten", True)
+    before = len(ram.applied)
+    service.on_resume()
+    assert ram.forgotten is True and len(ram.applied) == before + 1

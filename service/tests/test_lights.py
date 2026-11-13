@@ -388,3 +388,38 @@ def test_animation_error_disconnects_quietly():
     device.fail = True
     lights.tick_animation(1.0)  # must not raise
     assert lights.connected is False and lights.animating is False
+
+
+def test_a_slow_failing_openrgb_is_left_alone_for_a_while():
+    # A half-dead server can make each connection attempt hang for seconds;
+    # retrying every few seconds would starve the LCD.
+    now = [1000.0]
+    attempts = []
+
+    def hanging_connect():
+        attempts.append(now[0])
+        now[0] += 10  # the attempt itself took ten seconds
+        raise TimeoutError("no answer")
+
+    lights = Lights(hanging_connect, clock=lambda: now[0])
+    assert lights.try_connect() is False
+    now[0] += 5
+    assert lights.try_connect() is False
+    assert len(attempts) == 1  # the second call did not even try
+    now[0] += 120
+    lights.try_connect()
+    assert len(attempts) == 2
+
+
+def test_a_quick_refusal_is_retried_straight_away():
+    now = [1000.0]
+    attempts = []
+
+    def refuse():
+        attempts.append(1)
+        raise ConnectionRefusedError("not running")
+
+    lights = Lights(refuse, clock=lambda: now[0])
+    lights.try_connect()
+    lights.try_connect()
+    assert len(attempts) == 2
