@@ -13,5 +13,15 @@ NoNewPrivileges=yes
 PrivateNetwork=yes
 PrivateTmp=yes
 ProtectHome=yes
-ProtectSystem=full
+ProtectSystem=strict
+PrivateDevices=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallFilter=@system-service
 MemoryMax=32M
+# Do NOT add ProtectKernelTunables= or ProcSubset=pid here: both make
+# /proc/acpi/call, the one file this helper needs, unusable.
