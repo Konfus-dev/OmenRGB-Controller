@@ -57,8 +57,12 @@ echo "==> Background services"
 mkdir -p "$units"
 install -m 0644 "$repo/systemd/openrgb-server.service" "$repo/systemd/omenrgb.service" "$units/"
 systemctl --user daemon-reload
-systemctl --user enable --now openrgb-server.service omenrgb.service
-systemctl --user restart openrgb-server.service omenrgb.service
+systemctl --user enable openrgb-server.service omenrgb.service
+# Stop our service first, so it lets go of OpenRGB before OpenRGB restarts.
+# Otherwise OpenRGB cannot reopen its port for a minute or two.
+systemctl --user stop omenrgb.service
+systemctl --user restart openrgb-server.service
+systemctl --user start omenrgb.service
 
 echo
 echo "Done. If this is the first install: log out and back in once, then run"
