@@ -1,6 +1,6 @@
 # omen-control: design
 
-Date: 2026-11-13. Status: awaiting owner approval.
+Date: 2026-11-13. Status: approved by the owner 2026-11-13.
 
 ## Intent
 
@@ -175,12 +175,10 @@ owner can read before running.
   for Python and GNOME's standard ESLint config for JavaScript.
 - Repo: `main` is stable, work happens on `dev`.
 
-### Open question for the owner
+### Licence (decided by the owner)
 
-Licence. The repo currently carries MIT. `openrgb-python` is believed to be
-GPL-3 (not yet verified). If so, using it means this project should be
-GPL-3 too; staying MIT means writing our own small OpenRGB client instead.
-Recommendation: switch to GPL-3 and use the existing library.
+GPL-3.0-or-later, so the existing `openrgb-python` library can be used
+whatever its licence turns out to be among the GPL family.
 
 ## Order of work
 
