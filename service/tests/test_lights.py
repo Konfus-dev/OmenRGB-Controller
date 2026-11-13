@@ -1,7 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 from types import SimpleNamespace
 
-from omenrgb.lights import DeviceInfo, EffectOptions, Lights, scale_colour, zone_key
+import pytest
+
+from omenrgb.lights import (
+    DeviceInfo,
+    EffectOptions,
+    Lights,
+    breath_level,
+    scale_colour,
+    zone_key,
+)
 
 
 def rgb(colour):
@@ -11,6 +20,7 @@ def rgb(colour):
 class FakeZone:
     def __init__(self, name, fail=False):
         self.name, self.fail, self.colour = name, fail, None
+        self.leds = [object()]  # one LED per zone, as on the OMEN case
 
     def set_color(self, colour):
         if self.fail:
@@ -40,11 +50,17 @@ class FakeDevice:
         self.zones = [FakeZone(z) for z in zones]
         self.fail = fail
         self.mode = None
+        self.frames = []  # every set_colors call, as (r, g, b) per LED
 
     def set_mode(self, mode):
         if self.fail:
             raise OSError("write failed")
         self.mode = mode.name
+
+    def set_colors(self, colours, fast=False):
+        if self.fail:
+            raise OSError("write failed")
+        self.frames.append([rgb(c) for c in colours])
 
 
 def make(*devices):
@@ -56,9 +72,9 @@ def make(*devices):
 def case():
     return FakeDevice(
         "Case",
-        ["Direct", "Static", "Off", "Breathing"],
+        ["Direct", "Static", "Off", "Breathing", "Wave"],
         ["Logo", "Top Fan"],
-        palettes={"Breathing": 4},
+        palettes={"Breathing": 4, "Wave": 4},
     )
 
 
@@ -81,11 +97,12 @@ def test_devices_lists_modes_and_zones():
     assert lights.devices() == [
         DeviceInfo(
             "Case",
-            ("Direct", "Static", "Off", "Breathing"),
+            ("Direct", "Static", "Off", "Breathing", "Wave"),
             ("Logo", "Top Fan"),
             default_mode="Static",
             colourless_modes=("Off",),
-            speed_modes=("Breathing",),
+            speed_modes=("Breathing", "Wave"),
+            range_modes=("Breathing",),
         )
     ]
 
@@ -125,10 +142,10 @@ def test_unknown_mode_falls_back_to_first_mode_without_direct():
 def test_effect_mode_palette_is_filled_from_zone_colours():
     device = case()
     make(device).apply(
-        True, 100, {"Case": "Breathing"}, {"Case/Logo": "#FF0000", "Case/Top Fan": "#0000FF"}
+        True, 100, {"Case": "Wave"}, {"Case/Logo": "#FF0000", "Case/Top Fan": "#0000FF"}
     )
-    assert device.mode == "Breathing"
-    palette = next(m for m in device.modes if m.name == "Breathing").colors
+    assert device.mode == "Wave"
+    palette = next(m for m in device.modes if m.name == "Wave").colors
     assert [rgb(c) for c in palette] == [(255, 0, 0), (0, 0, 255), (255, 0, 0), (0, 0, 255)]
     assert [z.colour for z in device.zones] == [None, None]  # effects ignore per-zone writes
 
@@ -250,27 +267,124 @@ def test_lights_apply_gamma_to_zone_colours():
     assert device.zones[0].colour == (30, 8, 59)
 
 
-def breathing_speed(percent):
+def wave_speed(percent):
     device = case()
-    make(device).apply(True, 100, {"Case": "Breathing"}, {}, {"Case": EffectOptions(speed=percent)})
-    return next(m for m in device.modes if m.name == "Breathing").speed
+    make(device).apply(True, 100, {"Case": "Wave"}, {}, {"Case": EffectOptions(speed=percent)})
+    return next(m for m in device.modes if m.name == "Wave").speed
 
 
 def test_speed_percent_maps_onto_the_effects_own_range():
-    assert breathing_speed(0) == 1 and breathing_speed(50) == 2 and breathing_speed(100) == 3
+    assert wave_speed(0) == 1 and wave_speed(50) == 2 and wave_speed(100) == 3
 
 
 def test_speed_is_clamped_and_optional():
-    assert breathing_speed(900) == 3 and breathing_speed(-5) == 1
+    assert wave_speed(900) == 3 and wave_speed(-5) == 1
     device = case()
-    make(device).apply(True, 100, {"Case": "Breathing"}, {})  # no options given
-    assert next(m for m in device.modes if m.name == "Breathing").speed == 2  # 50 percent
+    make(device).apply(True, 100, {"Case": "Wave"}, {})  # no options given
+    assert next(m for m in device.modes if m.name == "Wave").speed == 2  # 50 percent
 
 
 def test_speed_follows_an_inverted_range():
     # Some OpenRGB effects count downwards: 60 is slowest, 0 fastest.
     device = case()
-    mode = next(m for m in device.modes if m.name == "Breathing")
+    mode = next(m for m in device.modes if m.name == "Wave")
     mode.speed_min, mode.speed_max = 60, 0
-    make(device).apply(True, 100, {"Case": "Breathing"}, {}, {"Case": EffectOptions(speed=100)})
+    make(device).apply(True, 100, {"Case": "Wave"}, {}, {"Case": EffectOptions(speed=100)})
     assert mode.speed == 0
+
+
+# --- Breathing is animated by us, so that dimmest/brightest/speed all work -----
+
+
+def test_breath_level_swings_between_dimmest_and_brightest():
+    period = 4.5  # seconds at speed 50
+    assert breath_level(0, 50, 20, 80) == pytest.approx(0.20)
+    assert breath_level(period / 2, 50, 20, 80) == pytest.approx(0.80)
+    assert breath_level(period, 50, 20, 80) == pytest.approx(0.20)
+    assert 0.20 < breath_level(period / 4, 50, 20, 80) < 0.80
+
+
+def test_breath_level_speed_and_sane_limits():
+    assert breath_level(0.5, 100, 0, 100) == pytest.approx(1.0)  # fastest: 1 s per breath
+    assert breath_level(4.0, 0, 0, 100) == pytest.approx(1.0)  # slowest: 8 s per breath
+    assert breath_level(0, 50, 90, 40) <= 0.40  # dimmest above brightest is pulled down
+    assert breath_level(0, 50, -20, 500) == 0.0
+
+
+def breathing(options=None, colours=None, brightness=100):
+    device = case()
+    lights = make(device)
+    lights.apply(True, brightness, {"Case": "Breathing"}, colours or {}, options)
+    return lights, device
+
+
+def test_breathing_runs_in_direct_mode_and_is_animated():
+    lights, device = breathing()
+    assert device.mode == "Direct" and lights.animating is True
+
+
+def test_other_effects_are_not_animated():
+    device = case()
+    lights = make(device)
+    lights.apply(True, 100, {"Case": "Static"}, {})
+    assert lights.animating is False
+    lights.tick_animation(1.0)
+    assert device.frames == []
+
+
+def test_each_tick_sends_one_frame_at_the_current_level():
+    options = {"Case": EffectOptions(speed=50, min_brightness=20, max_brightness=80)}
+    lights, device = breathing(options, {"Case/Logo": "#FF0000", "Case/Top Fan": "#0000FF"})
+    lights.tick_animation(100.0)  # first tick starts the breath at its dimmest
+    lights.tick_animation(100.0 + 2.25)  # half a breath later: brightest
+    assert device.frames == [
+        [(51, 0, 0), (0, 0, 51)],
+        [(204, 0, 0), (0, 0, 204)],
+    ]
+
+
+def test_overall_brightness_scales_the_breath():
+    lights, device = breathing({"Case": EffectOptions(min_brightness=100)}, brightness=50)
+    lights.tick_animation(1.0)
+    assert device.frames == [[(128, 128, 128), (128, 128, 128)]]
+
+
+def test_hidden_zones_stay_dark_while_breathing():
+    device = FakeDevice("Case", ["Direct", "Breathing"], ["Logo", "Dead", "Fan"])
+    lights = Lights(lambda: SimpleNamespace(devices=[device]), hidden_zones={"Case/Dead"})
+    lights.try_connect()
+    lights.apply(True, 100, {"Case": "Breathing"}, {}, {"Case": EffectOptions(min_brightness=100)})
+    lights.tick_animation(1.0)
+    assert device.frames == [[(255, 255, 255), (0, 0, 0), (255, 255, 255)]]
+
+
+def test_switching_away_or_off_stops_the_animation():
+    lights, device = breathing()
+    lights.apply(True, 100, {"Case": "Static"}, {})
+    assert lights.animating is False
+    lights, device = breathing()
+    lights.apply(False, 100, {"Case": "Breathing"}, {})
+    assert lights.animating is False and device.mode == "Off"
+
+
+def test_changing_a_slider_does_not_restart_the_breath():
+    lights, device = breathing()
+    lights.tick_animation(100.0)
+    lights.apply(True, 100, {"Case": "Breathing"}, {}, {"Case": EffectOptions(max_brightness=60)})
+    lights.tick_animation(100.0 + 2.25)  # still half a breath after the original start
+    assert device.frames[-1] == [(153, 153, 153)] * 2
+
+
+def test_device_without_direct_mode_keeps_the_boards_own_breathing():
+    device = FakeDevice("Case", ["Static", "Breathing"], ["Logo"], palettes={"Breathing": 4})
+    lights = make(device)
+    lights.apply(True, 100, {"Case": "Breathing"}, {})
+    assert device.mode == "Breathing" and lights.animating is False
+    assert lights.devices()[0].range_modes == ()
+
+
+def test_animation_error_disconnects_quietly():
+    lights, device = breathing()
+    device.fail = True
+    lights.tick_animation(1.0)  # must not raise
+    assert lights.connected is False and lights.animating is False

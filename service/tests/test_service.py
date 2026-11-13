@@ -48,6 +48,11 @@ class FakeLights:
         self.connected = self.connected and self.available
         return self.connected
 
+    animating = False  # tests set this to pretend a breath is running
+
+    def tick_animation(self, now):
+        self.animation_ticks = getattr(self, "animation_ticks", 0) + 1
+
     def devices(self):
         if not self.connected:
             return []
@@ -364,3 +369,15 @@ def test_effect_options_reach_both_kinds_of_light(with_ram):
 def test_new_setting_defaults(settings):
     for key in ("device-speeds", "device-min-brightness", "device-max-brightness"):
         assert settings.get_value(key).unpack() == {}
+
+
+def test_animation_timer_only_runs_while_something_is_animated(parts):
+    service, settings, _streamer, lights, _prepare = parts
+    service.start()
+    assert service.animation_running is False  # no 30-times-a-second wake-ups for nothing
+    lights.animating = True
+    service.flush_lights()
+    assert service.animation_running is True
+    lights.animating = False
+    service.flush_lights()
+    assert service.animation_running is False

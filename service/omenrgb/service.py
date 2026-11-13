@@ -10,6 +10,7 @@ import argparse
 import json
 import logging
 import signal
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -28,6 +29,7 @@ log = logging.getLogger(__name__)
 LCD_IMAGE_KEYS = ("lcd-image", "lcd-fit")
 LCD_BRIGHTNESS_KEYS = ("lcd-enabled", "lcd-brightness")
 LIGHTS_DEBOUNCE_MS = 250
+ANIMATION_INTERVAL_MS = 33  # about 30 frames a second while an effect is animated
 LIGHT_KEYS = (
     "lights-enabled",
     "lights-brightness",
@@ -56,6 +58,7 @@ class Service:
         self._ram = ram  # None on machines without controllable RAM lights
         self._display_names = display_names or {}
         self._lights_timer = 0  # GLib timer id while a lights update is waiting
+        self._animation_timer = 0  # GLib timer id while an effect is being animated
         self._error = ""  # last image problem, shown in the settings window
         self._sources: list[int] = []  # GLib timer ids, so stop() can remove them
         self._handler = 0
@@ -84,9 +87,10 @@ class Service:
         for source in self._sources:
             GLib.source_remove(source)
         self._sources = []
-        if self._lights_timer:
-            GLib.source_remove(self._lights_timer)
-            self._lights_timer = 0
+        for timer in (self._lights_timer, self._animation_timer):
+            if timer:
+                GLib.source_remove(timer)
+        self._lights_timer = self._animation_timer = 0
         if self._handler:
             self._settings.disconnect(self._handler)
             self._handler = 0
@@ -136,6 +140,24 @@ class Service:
 
     def _update_lights(self) -> None:
         self._lights.apply(*self._light_settings())
+        self._sync_animation_timer()
+
+    @property
+    def animation_running(self) -> bool:
+        return bool(self._animation_timer)
+
+    def _sync_animation_timer(self) -> None:
+        """Run the fast animation timer only while something is animated."""
+        if self._lights.animating and not self._animation_timer:
+            self._animation_timer = GLib.timeout_add(
+                ANIMATION_INTERVAL_MS, self._repeat, self._tick_animation
+            )
+        elif not self._lights.animating and self._animation_timer:
+            GLib.source_remove(self._animation_timer)
+            self._animation_timer = 0
+
+    def _tick_animation(self) -> None:
+        self._lights.tick_animation(time.monotonic())
 
     def _light_settings(self) -> tuple[bool, int, dict, dict, dict]:
         """The arguments for Lights.apply / RamLights.apply."""
@@ -198,6 +220,7 @@ class Service:
             self._update_lights()
         if self._ram and not self._ram.check() and self._ram.try_connect():
             self._update_ram()
+        self._sync_animation_timer()  # the connection may have come or gone
         self.publish_status()
 
     def _describe(self, device: DeviceInfo) -> dict:
