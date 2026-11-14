@@ -5,5 +5,6 @@
 # switch the LCD and lights back on.
 
 pidfile=/var/run/omen-lights.pid
-[ -f "$pidfile" ] && kill -USR2 "$(cat "$pidfile")" 2>/dev/null
+ours() { [ -f "$pidfile" ] && grep -qs omenrgb "/proc/$(cat "$pidfile")/cmdline"; }
+ours && kill -USR2 "$(cat "$pidfile")" 2>/dev/null
 exit 0

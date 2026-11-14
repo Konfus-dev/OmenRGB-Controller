@@ -8,27 +8,59 @@
 # Batocera calls this with "start" or "stop".
 
 app=/userdata/system/omen-lights
-pidfile=/var/run/omen-lights.pid
+pidfile=/var/run/omen-lights.pid            # the program itself; the game and sleep hooks signal it
+keeper=/var/run/omen-lights.keeper.pid      # the loop below, which restarts it if it dies
 log=/userdata/system/logs/omen-lights.log
+# For a detailed log, create this (empty) file and restart the service.
+debug=/userdata/system/configs/omen-lights/debug
+
+running() { [ -f "$1" ] && kill -0 "$(cat "$1")" 2>/dev/null; }
+
+# Batocera has nothing that restarts a service, so we do it: run the
+# program, and if it ends by itself (a crash), start it again after a pause
+# that grows while it keeps failing. Asked to stop, it ends with status 0.
+keep_running() {
+    local pause=5 started
+    while :; do
+        started=$(date +%s)
+        PYTHONPATH="$app/service" python3 -m omenrgb --platform batocera ${verbose:+--verbose} >>"$log" 2>&1 &
+        echo $! >"$pidfile"
+        wait $!
+        status=$?
+        [ "$status" -eq 0 ] && break
+        # Ran fine for a while before dying: not a start-up problem, so be quick again.
+        [ $(($(date +%s) - started)) -gt 120 ] && pause=5
+        echo "$(date '+%H:%M:%S') OMEN Lights ended unexpectedly (status $status); starting it again in $pause s" >>"$log"
+        sleep "$pause"
+        [ "$pause" -lt 300 ] && pause=$((pause * 2))
+    done
+    rm -f "$pidfile"
+}
 
 case "$1" in
     start)
-        [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null && exit 0
+        running "$keeper" && exit 0
         mkdir -p "$(dirname "$log")"
         # Keep the previous run's log as .old (it explains a crash or a bad
         # suspend), and start a fresh one; everything below adds to it.
         [ -f "$log" ] && mv -f "$log" "$log.old"
         : >"$log"
+        rm -f /var/run/omen-lights/asleep   # left behind if we died while the PC slept
         # The RAM lights need this kernel module; without it they are skipped.
         # (The module only fits the kernel version it was built for.)
-        [ -e /proc/acpi/call ] || modprobe acpi_call 2>/dev/null ||
-            insmod "$app/modules/$(uname -r)/acpi_call.ko" 2>>"$log" || true
-        PYTHONPATH="$app/service" nohup python3 -m omenrgb --platform batocera --verbose \
-            >>"$log" 2>&1 &
-        echo $! >"$pidfile"
+        if ! [ -e /proc/acpi/call ] && ! modprobe acpi_call 2>/dev/null &&
+            ! insmod "$app/modules/$(uname -r)/acpi_call.ko" 2>>"$log"; then
+            echo "RAM lights are off: no acpi_call module for this Batocera's kernel ($(uname -r))." \
+                "The LCD and case lights are not affected." >>"$log"
+        fi
+        verbose=; [ -e "$debug" ] && verbose=1
+        keep_running </dev/null >/dev/null 2>&1 &
+        echo $! >"$keeper"
         ;;
     stop)
-        [ -f "$pidfile" ] && kill "$(cat "$pidfile")" 2>/dev/null
-        rm -f "$pidfile"
+        # The keeper first, or it would start the program again.
+        running "$keeper" && kill "$(cat "$keeper")" 2>/dev/null
+        running "$pidfile" && kill "$(cat "$pidfile")" 2>/dev/null
+        rm -f "$keeper" "$pidfile"
         ;;
 esac

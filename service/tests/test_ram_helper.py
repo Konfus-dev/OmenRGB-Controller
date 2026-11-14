@@ -96,8 +96,16 @@ def run(line, tmp_path, reply="{0x50, 0x41, 0x53, 0x53, 0x00, 0x00, 0x00, 0x00}"
         sent.append(command)
         return reply
 
-    answer = h.handle_line(line, call, make_sysfs(tmp_path, 0x51), sleep=lambda s: None)
+    answer = h.handle_line(
+        line, call, make_sysfs(tmp_path, 0x51), sleep=lambda s: None, ready=lambda: True
+    )
     return answer, sent
+
+
+def test_ping_fails_when_the_bios_cannot_be_reached(tmp_path):
+    # Without acpi_call every write would fail, so "connected" would be a lie.
+    answer = h.handle_line("PING", lambda c: "", make_sysfs(tmp_path, 0x51), ready=lambda: False)
+    assert answer.startswith("ERR")
 
 
 def test_handle_line_ok(tmp_path):

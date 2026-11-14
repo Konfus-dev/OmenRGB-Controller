@@ -51,8 +51,10 @@ class FakeLights:
 
     animating = False  # tests set this to pretend a breath is running
 
+    forgets = 0  # how many times the service said "the hardware may have forgotten"
+
     def forget(self):
-        pass
+        self.forgets += 1
 
     def finish_transitions(self):
         self.finished = True
@@ -765,3 +767,62 @@ def test_animation_pauses_while_asleep(animated):
     assert service.lcd_animating is False
     service.on_resume()
     assert service.lcd_animating is True
+
+
+class Clocks:
+    """Stand-ins for "seconds spent asleep" and "seconds running"."""
+
+    def __init__(self):
+        self.slept_total = 0.0
+        self.now = 0.0
+
+    def make(self, settings, lights):
+        return Service(Store(settings), FakeStreamer(), lights, FakePrepare(),
+                       slept=lambda: self.slept_total, clock=lambda: self.now)
+
+
+def test_a_sleep_nobody_announced_is_noticed_and_repaired(settings):
+    clocks, lights = Clocks(), FakeLights()
+    service = clocks.make(settings, lights)
+    service.start()
+    service.tick_slow()
+    assert not service._asleep
+    forgotten = lights.forgets
+    clocks.slept_total += 600  # ten minutes asleep, and no hook told us
+    service.tick_slow()
+    assert lights.forgets == forgotten + 1  # everything is sent to the hardware again
+
+
+def test_a_lost_wake_message_does_not_leave_things_dark(settings):
+    clocks, lights = Clocks(), FakeLights()
+    service = clocks.make(settings, lights)
+    service.start()
+    service.on_sleep()
+    clocks.slept_total += 3600  # slept an hour; the "woke up" message never came
+    service.tick_slow()
+    assert not service._asleep
+
+
+def test_a_sleep_that_never_happened_is_given_up_on(settings):
+    clocks, lights = Clocks(), FakeLights()
+    service = clocks.make(settings, lights)
+    service.start()
+    service.on_sleep()
+    clocks.now += 10
+    service.tick_slow()
+    assert service._asleep  # still plausibly on its way to sleep
+    clocks.now += 60
+    service.tick_slow()
+    assert not service._asleep
+
+
+def test_an_announced_wake_is_not_handled_twice(settings):
+    clocks, lights = Clocks(), FakeLights()
+    service = clocks.make(settings, lights)
+    service.start()
+    service.on_sleep()
+    clocks.slept_total += 600
+    service.on_resume()  # told properly
+    forgotten = lights.forgets
+    service.tick_slow()
+    assert lights.forgets == forgotten

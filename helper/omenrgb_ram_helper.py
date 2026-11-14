@@ -113,7 +113,7 @@ def call_bios(command: str) -> str:
 
 
 def handle_line(
-    line: str, call=None, i2c_devices: Path = I2C_DEVICES, sleep=None, present=None
+    line: str, call=None, i2c_devices: Path = I2C_DEVICES, sleep=None, present=None, ready=None
 ) -> str:
     """Process one request line and return the reply line.
 
@@ -123,6 +123,11 @@ def handle_line(
     call = call or call_bios
     sleep = sleep or time.sleep
     if line.strip().upper() == "PING":
+        # "OK" must mean writes can work. Without the acpi_call module (a
+        # kernel update it was not rebuilt for, say) every write would fail,
+        # and the RAM would seem to connect and drop over and over.
+        if not (ready() if ready else ACPI_CALL.exists()):
+            return "ERR the acpi_call kernel module is not loaded"
         return "OK"
     try:
         address, register, value = parse_request(line)

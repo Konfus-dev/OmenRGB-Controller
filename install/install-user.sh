@@ -19,7 +19,11 @@ units="$HOME/.config/systemd/user"
 
 echo "==> Python environment in $venv"
 # --system-site-packages lets it use Ubuntu's own Pillow and GTK bindings.
-[[ -x "$venv/bin/python" ]] || python3 -m venv --system-site-packages "$venv"
+# Rebuilt when it is missing or broken; an Ubuntu upgrade that brings a new
+# Python leaves the old environment unable to run.
+if ! "$venv/bin/python" -c "import pip" 2>/dev/null; then
+    python3 -m venv --clear --system-site-packages "$venv"
+fi
 # Editable install: the service runs straight from this repo, so after
 # editing the code you only need: systemctl --user restart omenrgb
 "$venv/bin/pip" install --quiet --editable "$repo/service"
@@ -36,7 +40,14 @@ glib-compile-schemas --strict "$repo/frontends/gnome-shell/$uuid/schemas"
 echo "==> OpenRGB limited to the case-light board"
 orgb="$HOME/.config/omenrgb/openrgb"
 known="$("$venv/bin/python" -m omenrgb.backends.openrgb "$orgb" "$HOME/.config/OpenRGB/OpenRGB.json")"
-if (( known < 100 )); then
+# A different OpenRGB than last time may have detectors our list does not
+# name, and it runs any it does not find there. Learn its list afresh.
+rescan=0
+if [[ -e "$orgb/openrgb-program" ]] && ! "$venv/bin/python" -m omenrgb.backends.openrgb --check-program "$orgb" 2>/dev/null; then
+    echo "    OpenRGB has been updated; checking its hardware detectors again."
+    rescan=1
+fi
+if (( known < 100 || rescan )); then
     # OpenRGB only writes down the names of its detectors after one full
     # hardware scan. Do that scan once, then switch the detectors off.
     echo "    One-time full hardware scan (takes about 30 seconds)."
@@ -51,6 +62,13 @@ if (( known < 100 )); then
         echo "       Run 'sudo bash install/setup.sh' first, then this script again." >&2
         exit 1
     fi
+fi
+"$venv/bin/python" -m omenrgb.backends.openrgb --record-program "$orgb"
+
+# The RAM helper runs as root from its own copy, which only setup.sh updates.
+installed_helper=/usr/local/lib/omenrgb/omenrgb_ram_helper.py
+if [[ -e "$installed_helper" ]] && ! cmp -s "$repo/helper/omenrgb_ram_helper.py" "$installed_helper"; then
+    echo "NOTE: the RAM helper has changed. To update it: sudo bash install/setup.sh"
 fi
 
 echo "==> Background services"

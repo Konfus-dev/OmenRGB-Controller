@@ -326,6 +326,11 @@ class RamLights:
         except OSError as error:
             log.warning("Could not set RAM lights: %s", error)
             return False
+        except Exception:
+            # Anything else must not end this thread: nothing would restart
+            # it and the RAM would silently stop following.
+            log.exception("Unexpected error setting RAM lights")
+            return False
         with self._lock:
             if epoch == self._epoch:  # nobody called forget() meanwhile
                 for stick, register, value in changes:

@@ -29,12 +29,28 @@ log = logging.getLogger(__name__)
 VOLATILE = ("status", "focused-app")
 
 
+def _same_kind(value: Any, default: Any) -> bool:
+    """Is `value` the kind of thing `default` is? Looks inside lists and
+    name -> value tables too, since a number where a colour should be would
+    trip up the code that uses it."""
+    if type(value) is not type(default):
+        return False
+    if isinstance(value, dict):
+        return all(isinstance(k, str) and isinstance(v, (str, int)) and not isinstance(v, bool)
+                   for k, v in value.items())
+    if isinstance(value, list):
+        return all(isinstance(item, str) for item in value)
+    return True
+
+
 class JsonSettings:
     def __init__(self, path: Path, defaults: dict[str, Any] | None = None):
         """`defaults` overrides the standard defaults for this platform."""
         self._path = Path(path)
         self._defaults = {**DEFAULTS, **(defaults or {})}
-        self._saved: dict[str, Any] = self._read()  # what the file says
+        self._warned: set[str] = set()  # problems already reported for the file as it is now
+        self._last_text: str | None = None
+        self._saved: dict[str, Any] = self._read({})  # what the file says
         self._volatile: dict[str, Any] = {}
         self._subscribers: list[Callable[[str], None]] = []
 
@@ -63,7 +79,7 @@ class JsonSettings:
     def reload(self) -> None:
         """Read the file again (after someone edited it) and report changes."""
         before = {key: self.get(key) for key in self._defaults}
-        self._saved = self._read()
+        self._saved = self._read(self._saved)
         for key in self._defaults:
             if self.get(key) != before[key]:
                 self._tell(key)
@@ -72,24 +88,46 @@ class JsonSettings:
         for callback in list(self._subscribers):
             callback(key)
 
-    def _read(self) -> dict[str, Any]:
-        """The file's contents, keeping only known keys with sensible values."""
+    def _warn(self, message: str, *args) -> None:
+        """Log a problem with the file once, not at every re-read of the same contents."""
+        text = message % args
+        if text not in self._warned:
+            self._warned.add(text)
+            log.warning("%s: %s", self._path, text)
+
+    def _read(self, fallback: dict[str, Any]) -> dict[str, Any]:
+        """The file's contents, keeping only known keys with sensible values.
+
+        A file that cannot be understood at all (caught half-saved, or with a
+        typo in it) changes nothing: `fallback`, the last good settings, stays.
+        """
         try:
-            data = json.loads(self._path.read_text())
+            text = self._path.read_text()
         except FileNotFoundError:
             return {}
         except (OSError, ValueError) as error:
-            log.warning("Ignoring %s: %s", self._path, error)
-            return {}
+            self._warn("cannot be read (%s); keeping the previous settings", error)
+            return fallback
+        if text != self._last_text:
+            self._last_text = text
+            self._warned.clear()  # a changed file may have new problems, or none
+        try:
+            data = json.loads(text)
+        except ValueError as error:
+            self._warn("is not valid JSON (%s); keeping the previous settings", error)
+            return fallback
         if not isinstance(data, dict):
-            log.warning("Ignoring %s: it should contain one { ... } object", self._path)
-            return {}
+            self._warn("should contain one { ... } object; keeping the previous settings")
+            return fallback
         good = {}
         for key, value in data.items():
-            if key in VOLATILE or key not in self._defaults:
+            if key in VOLATILE:
                 continue
-            if type(value) is not type(self._defaults[key]):
-                log.warning("Ignoring '%s' in %s: wrong kind of value", key, self._path)
+            if key not in self._defaults:
+                self._warn("unknown setting '%s' ignored (check the spelling)", key)
+                continue
+            if not _same_kind(value, self._defaults[key]):
+                self._warn("'%s' ignored: wrong kind of value", key)
                 continue
             good[key] = value
         return good

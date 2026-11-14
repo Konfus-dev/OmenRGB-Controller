@@ -120,7 +120,8 @@ def subject_reader(path: Path, settings) -> Callable[[], None]:
 
     def read() -> None:
         try:
-            subject = path.read_text().strip()
+            # A game's file name need not be valid text; never let one stop us.
+            subject = path.read_text(errors="replace").strip()
         except OSError:
             subject = ""
         settings.set("focused-app", subject)
@@ -199,20 +200,26 @@ def main(argv: list[str] | None = None) -> int:
     theme_seen = [_mtime(batocera_theme.ES_SETTINGS)]
 
     def look_again() -> bool:
-        read_subject()
-        settings.reload()  # picks up hand edits even if file watching fails
-        if (now := _mtime(batocera_theme.ES_SETTINGS)) != theme_seen[0]:
-            theme_seen[0] = now  # the menu's settings changed: maybe a new theme
-            looks.forget_idle()
-            service.on_changed("auto-idle-image")
+        try:
+            read_subject()
+            settings.reload()  # picks up hand edits even if file watching fails
+            if (now := _mtime(batocera_theme.ES_SETTINGS)) != theme_seen[0]:
+                theme_seen[0] = now  # the menu's settings changed: maybe a new theme
+                looks.forget_idle()
+                service.on_changed("auto-idle-image")
+        except Exception:
+            # One bad look must not end the looking: a timer that raises is dropped.
+            log.exception("Unexpected error while checking for changes; carrying on")
         return True
 
-    glib_runtime.GLibScheduler().every(POLL_MS, look_again)
-    service.start()
+    # Before anything slow: until these are in place, a "going to sleep"
+    # signal would end the program instead of being handled.
     going_to_sleep, woke_up = power_handlers(service, ASLEEP_MARKER)
     ASLEEP_MARKER.unlink(missing_ok=True)
     glib_runtime.on_signal(signal.SIGUSR1, going_to_sleep)
     glib_runtime.on_signal(signal.SIGUSR2, woke_up)
+    glib_runtime.GLibScheduler().every(POLL_MS, look_again)
+    service.start()
     log.info("omenrgb service running (Batocera)")
     glib_runtime.run_until_stopped()
     stop_following()

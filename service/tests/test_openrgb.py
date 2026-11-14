@@ -1,7 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import json
 
-from omenrgb.backends.openrgb import restrict_detectors, write_config
+from omenrgb.backends.openrgb import (
+    program_unchanged,
+    record_program,
+    restrict_detectors,
+    write_config,
+)
 
 
 def test_only_wanted_detectors_stay_on():
@@ -63,3 +68,14 @@ def test_seed_file_supplies_detector_names_to_switch_off(tmp_path):
         "ENE": False,
     }
     assert count == 2  # how many detectors are now known
+
+
+def test_a_changed_openrgb_program_is_noticed(tmp_path):
+    program = tmp_path / "openrgb"
+    program.write_bytes(b"version one")
+    folder = tmp_path / "config"
+    assert not program_unchanged(folder, str(program))  # never recorded: not safe to start
+    record_program(folder, str(program))
+    assert program_unchanged(folder, str(program))
+    program.write_bytes(b"version two, with new detectors")
+    assert not program_unchanged(folder, str(program))

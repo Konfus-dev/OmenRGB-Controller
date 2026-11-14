@@ -16,5 +16,6 @@ esac
 
 # Nudge the service so it looks at the file straight away.
 pidfile=/var/run/omen-lights.pid
-[ -f "$pidfile" ] && kill -HUP "$(cat "$pidfile")" 2>/dev/null
+ours() { [ -f "$pidfile" ] && grep -qs omenrgb "/proc/$(cat "$pidfile")/cmdline"; }
+ours && kill -HUP "$(cat "$pidfile")" 2>/dev/null
 exit 0

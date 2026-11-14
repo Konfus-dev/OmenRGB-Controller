@@ -11,10 +11,18 @@ detector is switched off except the ones named in DETECTORS below.
 
 Run as:  python -m omenrgb.backends.openrgb <config folder> [other OpenRGB.json ...]
 Prints how many detectors it now knows about.
+
+OpenRGB runs any detector its config does not name, so a newer OpenRGB with
+new detectors could probe the RAM after all. The config is therefore tied to
+the OpenRGB program it was made with:
+
+    ... --record-program <config folder>   remember the installed OpenRGB (the installer does this)
+    ... --check-program <config folder>    fail if OpenRGB has changed since (run before each start)
 """
 
 import copy
 import json
+import shutil
 import sys
 from collections.abc import Iterable
 from pathlib import Path
@@ -28,6 +36,7 @@ TIMEOUT_S = 2.0  # how long to wait for OpenRGB to answer a request
 DETECTORS = ("HP Omen 30L",)
 
 CONFIG_FILE = "OpenRGB.json"
+PROGRAM_STAMP = "openrgb-program"
 
 
 def connect():
@@ -80,6 +89,37 @@ def write_config(folder: Path, keep: Iterable[str], seeds: Iterable[Path] = ()) 
     return len(config["Detectors"]["detectors"])
 
 
+def program_fingerprint(program: str | None = None) -> str:
+    """Identifies the installed OpenRGB without running it (running it probes hardware)."""
+    path = program or shutil.which("openrgb")
+    if not path:
+        return "not installed"
+    info = Path(path).resolve().stat()
+    return f"{info.st_size}-{info.st_mtime_ns}"
+
+
+def record_program(folder: Path, program: str | None = None) -> None:
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / PROGRAM_STAMP).write_text(program_fingerprint(program) + "\n")
+
+
+def program_unchanged(folder: Path, program: str | None = None) -> bool:
+    """True if OpenRGB is still the one the detector list was made for."""
+    try:
+        return (folder / PROGRAM_STAMP).read_text().strip() == program_fingerprint(program)
+    except OSError:
+        return False  # never recorded: the installer has not finished
+
+
 if __name__ == "__main__":
-    known = write_config(Path(sys.argv[1]), DETECTORS, [Path(p) for p in sys.argv[2:]])
-    print(known)
+    if sys.argv[1] == "--record-program":
+        record_program(Path(sys.argv[2]))
+    elif sys.argv[1] == "--check-program":
+        if not program_unchanged(Path(sys.argv[2])):
+            sys.exit(
+                "OpenRGB has been updated since OMEN Lights was set up. Not starting it: a new "
+                "version may probe the RAM. Run install/install-user.sh again to re-check it."
+            )
+    else:
+        known = write_config(Path(sys.argv[1]), DETECTORS, [Path(p) for p in sys.argv[2:]])
+        print(known)

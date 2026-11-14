@@ -3,6 +3,9 @@
 Description=OMEN Lights service (cooler LCD and case lights)
 After=openrgb-server.service
 Wants=openrgb-server.service
+# When OpenRGB is restarted, stop first and start after it. While we hold a
+# connection, OpenRGB cannot reopen its port and fails for minutes.
+PartOf=openrgb-server.service
 
 [Service]
 # Rebuild the compiled settings list first, so a newly pulled version with

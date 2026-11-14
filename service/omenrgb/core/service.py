@@ -38,6 +38,21 @@ LIGHTS_DEBOUNCE_MS = 40
 LCD_FADE_STEPS = 8  # frames in a crossfade between two LCD pictures
 LCD_FADE_INTERVAL_MS = 45  # time between those frames (about 0.36 s in all)
 SLEEP_WAIT_S = 3.0  # how long to wait for the RAM to go dark before sleeping
+SLEPT_JUMP_S = 5.0  # the clocks drifting apart by this much means the computer slept
+SLEEP_NEVER_CAME_S = 45.0  # told "going to sleep" this long ago and still running: it did not
+
+
+def suspended_seconds() -> float:
+    """How long this computer has spent asleep since it booted.
+
+    One clock keeps counting through sleep and the other stops, so the
+    difference grows by the length of every sleep. 0 where there is no such
+    pair of clocks.
+    """
+    boottime = getattr(time, "CLOCK_BOOTTIME", None)
+    if boottime is None:
+        return 0.0
+    return time.clock_gettime(boottime) - time.clock_gettime(time.CLOCK_MONOTONIC)
 ANIMATION_INTERVAL_MS = 33  # about 30 frames a second while an effect is animated
 LIGHT_KEYS = (
     "lights-enabled",
@@ -63,6 +78,8 @@ class Service:
         fade: Callable[[bytes | None, bytes | None, int], Iterator[bytes]] | None = None,
         scheduler: Scheduler | None = None,
         watch_file: WatchFile | None = None,
+        slept: Callable[[], float] = suspended_seconds,
+        clock: Callable[[], float] = time.monotonic,
     ):
         """Everything the service needs is handed in, so this class knows
         nothing about any particular operating system or hardware library:
@@ -96,6 +113,10 @@ class Service:
         self._fade_iter: Iterator[bytes] | None = None  # frames of a running fade
         self._fade_timer = None
         self._asleep = False  # between "going to sleep" and "woke up"
+        self._slept = slept  # total seconds spent asleep (see suspended_seconds)
+        self._clock = clock
+        self._slept_seen = slept()
+        self._asleep_since = 0.0
         self._animation_index = 0  # which frame of an animated LCD picture is showing
         self._lcd_animation_timer = None
         self._lights_timer = None  # timer handle while a lights update is waiting
@@ -249,6 +270,7 @@ class Service:
         """
         log.info("Going to sleep; switching LCD and lights off")
         self._asleep = True
+        self._asleep_since = self._clock()
         self.finish_lcd_fade()
         self._sync_lcd_animation()
         self._update_lcd_brightness()
@@ -263,6 +285,7 @@ class Service:
         hardware may have forgotten its settings, so send them all again."""
         log.info("Woke from sleep; restoring LCD and lights")
         self._asleep = False
+        self._slept_seen = self._slept()
         self._sync_lcd_animation()
         self._update_lcd_brightness()
         self._streamer.tick_claim()
@@ -482,8 +505,25 @@ class Service:
 
     # --- housekeeping --------------------------------------------------------
 
+    def _notice_missed_wake(self) -> None:
+        """Recover when nobody told us about a sleep, or about its end.
+
+        The "woke up" message can get lost (a hook that did not run, a crash
+        of whatever sends it), and some ways of sleeping send no messages at
+        all. Either would leave the lights dark, or the RAM showing whatever
+        the BIOS put back, until a restart. So we also look for ourselves.
+        """
+        slept = self._slept()
+        if slept - self._slept_seen > SLEPT_JUMP_S:
+            log.info("The computer slept (%.0f s); nobody told us it woke", slept - self._slept_seen)
+            self.on_resume()
+        elif self._asleep and self._clock() - self._asleep_since > SLEEP_NEVER_CAME_S:
+            log.info("Told the computer was going to sleep, but it never did; lights back on")
+            self.on_resume()
+
     def tick_slow(self) -> None:
         """Every few seconds: reconnect whatever went away, refresh status."""
+        self._notice_missed_wake()
         self._streamer.tick_reconnect()
         if not self._lights.check() and self._lights.try_connect():
             self._update_lights()

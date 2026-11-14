@@ -58,7 +58,7 @@ using it, see the [README](../README.md).
 | In focus | the focused app; its icon from the icon theme | the running game; its scraped artwork |
 | Idle look (nothing in focus) | the wallpaper and its main colour (`gnome_theme.py`) | the menu theme's background (`batocera_theme.py`) |
 | LCD override folder (`core/lcd_folder.py`) | `~/.config/omenrgb/lcd/` | `omen-lights/` in the active theme |
-| Sleep/wake | systemd-logind | not handled |
+| Sleep/wake | systemd-logind | Batocera's suspend/resume hooks |
 | Timers, file watching | GLib (`glib_runtime.py`) | GLib |
 
 A bug in a front end cannot stall hardware handling, and a new system does
@@ -165,6 +165,28 @@ settings window, fall back to the normal settings.
 The service holds a logind "delay" lock. Just before the computer sleeps it
 turns the LCD, case lights and RAM off, then releases the lock. After
 waking it sends every setting again, in case the hardware lost them.
+On Batocera the menu's suspend and resume hooks send the same two messages.
+
+Those messages are not relied on. Every few seconds the service compares a
+clock that counts through sleep with one that does not; a jump means the
+computer slept, and everything is sent again whether or not anyone said so.
+And if it was told "going to sleep" but is still running 45 seconds later,
+it switches everything back on.
+
+## Staying up
+
+- **Ubuntu**: systemd restarts the service if it fails. It is tied to the
+  OpenRGB server (`PartOf`), so they restart in an order in which OpenRGB can
+  always reopen its port. OpenRGB is not started at all if the program has
+  changed since `install-user.sh` last ran, because a new version may bring
+  hardware detectors that the restricted config does not switch off.
+- **Batocera**: the service script keeps the program running itself,
+  restarting it after a crash with a growing pause.
+- A settings file that cannot be read (half-saved, or with a typo) changes
+  nothing: the last good settings stay in force and the problem is logged once.
+- The RAM helper only reports itself ready when the BIOS can be reached, so a
+  missing `acpi_call` module shows as "RAM unavailable" rather than a RAM
+  section that comes and goes.
 
 ## Settings
 

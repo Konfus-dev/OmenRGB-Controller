@@ -43,7 +43,13 @@ as the file is saved. Only list what you want to change, for example:
 ## If something is wrong
 
 The log is `/userdata/system/logs/omen-lights.log`; the previous run's is
-kept beside it as `omen-lights.log.old`.
+kept beside it as `omen-lights.log.old`. For a detailed log, create an empty
+file `/userdata/system/configs/omen-lights/debug` and switch the service off
+and on. Remove it afterwards: the detailed log grows quickly.
+
+If the program stops by itself it is started again automatically, and a
+mistake in `settings.json` is reported in the log while the previous settings
+stay in force.
 
 RAM lights need a small kernel module that is built for one exact Batocera
 kernel (the one for Batocera 43.1 is included). After a Batocera update the

@@ -49,7 +49,10 @@ def on_signal(signum: int, callback: Callable[[], None]) -> None:
     """Call `callback` on the event loop each time the process gets `signum`."""
 
     def handler() -> bool:
-        callback()
+        try:
+            callback()
+        except Exception:
+            log.exception("Unexpected error handling signal %s; carrying on", signum)
         return True  # keep listening
 
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, handler)

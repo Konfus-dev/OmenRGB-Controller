@@ -8,7 +8,10 @@
 pidfile=/var/run/omen-lights.pid
 asleep=/var/run/omen-lights/asleep
 
-[ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null || exit 0
+# Only signal the number in the file if it is still our program; after a
+# crash it could belong to something else, which the signal would end.
+ours() { [ -f "$pidfile" ] && grep -qs omenrgb "/proc/$(cat "$pidfile")/cmdline"; }
+ours || exit 0
 rm -f "$asleep"
 kill -USR1 "$(cat "$pidfile")"
 for _ in $(seq 30); do
