@@ -7,7 +7,8 @@ What this platform chooses:
 - case lights:  an OpenRGB server
 - RAM lights:   the root helper, which asks the BIOS
 - what is in focus: the app the extension reports; its icon comes from the
-                icon theme, and the idle picture is the OS logo
+                icon theme. With nothing in focus the PC matches the desktop
+                theme: the wallpaper on the LCD, the accent colour on the lights
 - sleep/wake:   systemd-logind
 """
 
@@ -22,10 +23,10 @@ from ..backends import hidraw, openrgb, ram_bios
 from ..core.lcd_fade import fade_frames
 from ..core.lcd_streamer import LcdStreamer
 from ..core.lights import Lights
-from ..core.look import Looks
+from ..core.look import Looks, cover_lcd, vivid
 from ..core.ram import RamLights
 from ..core.service import Service
-from . import glib_runtime, gtk_icons, logind
+from . import glib_runtime, gnome_theme, gtk_icons, logind
 from .gsettings_store import GSettingsStore, load_settings
 
 log = logging.getLogger(__name__)
@@ -60,6 +61,25 @@ def main(argv: list[str] | None = None) -> int:
         log.error("%s", error)
         return 1
 
+    theme = gnome_theme.DesktopTheme()
+
+    def idle_picture():
+        """The wallpaper; the OS logo if it cannot be used."""
+        wallpaper = theme.wallpaper()
+        if wallpaper:
+            try:
+                return gtk_icons.draw_image_file(wallpaper)
+            except Exception as error:  # GLib raises its own error types
+                log.warning("Cannot use the wallpaper %s: %s", wallpaper, error)
+        return gtk_icons.load_os_logo()
+
+    looks = Looks(
+        gtk_icons.load_app_icon,
+        ignore=AUTO_IGNORED_APPS,
+        load_idle=idle_picture,
+        compose_idle=cover_lcd,
+        idle_colour=lambda: vivid(theme.accent_colour() or ""),
+    )
     service = Service(
         settings,
         LcdStreamer(hidraw.open_lcd),
@@ -71,16 +91,18 @@ def main(argv: list[str] | None = None) -> int:
             background=True,
         ),
         display_names=omen45l.DISPLAY_NAMES,
-        looks=Looks(
-            gtk_icons.load_app_icon,
-            ignore=AUTO_IGNORED_APPS,
-            load_idle=gtk_icons.load_os_logo,
-        ),
+        looks=looks,
         fade=fade_frames,
         scheduler=glib_runtime.GLibScheduler(),
         watch_file=glib_runtime.watch_file,
     )
     service.start()
+
+    def theme_changed() -> None:
+        looks.forget_idle()
+        service.on_changed("auto-idle-image")  # makes the service look again
+
+    theme.on_change(theme_changed)
     # Kept in a variable until we exit: the notifications stop once nothing
     # refers to the connection any more.
     sleep_watch = logind.watch_for_sleep(service.on_sleep, service.on_resume)

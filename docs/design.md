@@ -56,7 +56,7 @@ using it, see the [README](../README.md).
 | Case lights | OpenRGB server (`openrgb.py`) | own driver (`tracer.py`) |
 | RAM lights | root helper over a socket | in-process (the service is root), if `acpi_call` exists |
 | In focus | the focused app; its icon from the icon theme | the running game; its scraped artwork |
-| Idle picture | the OS logo | the Batocera logo |
+| Idle look (nothing in focus) | the desktop theme: wallpaper and accent colour (`gnome_theme.py`) | the menu theme: its background picture and colour (`batocera_theme.py`) |
 | Sleep/wake | systemd-logind | not handled |
 | Timers, file watching | GLib (`glib_runtime.py`) | GLib |
 

@@ -15,7 +15,10 @@ case "$1" in
     start)
         [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null && exit 0
         mkdir -p "$(dirname "$log")"
-        : >"$log"  # start a fresh log; everything below adds to it
+        # Keep the previous run's log as .old (it explains a crash or a bad
+        # suspend), and start a fresh one; everything below adds to it.
+        [ -f "$log" ] && mv -f "$log" "$log.old"
+        : >"$log"
         # The RAM lights need this kernel module; without it they are skipped.
         # (The module only fits the kernel version it was built for.)
         [ -e /proc/acpi/call ] || modprobe acpi_call 2>/dev/null ||

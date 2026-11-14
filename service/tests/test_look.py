@@ -155,3 +155,29 @@ def test_looks_can_be_told_how_to_lay_pictures_out():
         compose_idle=lambda image: b"idle",
     )
     assert looks.look_for("game").jpeg == b"art" and looks.idle_look().jpeg == b"idle"
+
+
+def test_vivid_makes_a_muted_colour_bright_enough_for_leds():
+    from omenrgb.core.look import vivid
+
+    red, green, blue = (int(vivid("#9141AC")[i : i + 2], 16) for i in (1, 3, 5))
+    assert max(red, green, blue) == 255 and blue > red > green  # still purple, now bright
+    assert vivid("#FF0000") == "#FF0000"
+    assert vivid("nonsense") is None
+
+
+def test_idle_colour_can_come_from_the_platform():
+    looks = Looks(
+        lambda subject: None,
+        load_idle=lambda: icon((255, 0, 0, 255), size=64),
+        idle_colour=lambda: "#00FF00",
+    )
+    assert looks.idle_look().colour == "#00FF00"
+
+
+def test_forget_idle_rebuilds_the_idle_look():
+    pictures = [icon((255, 0, 0, 255), size=64), icon((0, 0, 255, 255), size=64)]
+    looks = Looks(lambda subject: None, load_idle=lambda: pictures.pop(0))
+    assert looks.idle_look().colour == "#FF0000"
+    looks.forget_idle()
+    assert looks.idle_look().colour == "#0000FF"

@@ -79,6 +79,23 @@ def dominant_colour(icon: Image.Image) -> str | None:
     return f"#{red:02X}{green:02X}{blue:02X}"
 
 
+def vivid(colour: str) -> str | None:
+    """'#RRGGBB' with the same hue, made bright and saturated enough to look
+    like itself on LEDs. None if `colour` is not a colour."""
+    text = colour.strip().lstrip("#")
+    try:
+        if len(text) != 6:
+            raise ValueError
+        parts = [int(text[i : i + 2], 16) / 255 for i in (0, 2, 4)]
+    except ValueError:
+        return None
+    hue, saturation, _value = colorsys.rgb_to_hsv(*parts)
+    red, green, blue = (
+        round(255 * part) for part in colorsys.hsv_to_rgb(hue, max(saturation, LED_SATURATION), 1.0)
+    )
+    return f"#{red:02X}{green:02X}{blue:02X}"
+
+
 def icon_on_black(icon: Image.Image) -> bytes:
     """An LCD-ready JPEG of the icon, centred on black."""
     icon = icon.convert("RGBA")
@@ -106,6 +123,7 @@ class Looks:
         load_idle: Callable[[], Image.Image | None] | None = None,
         compose: Callable[[Image.Image], bytes] = icon_on_black,
         compose_idle: Callable[[Image.Image], bytes] = icon_on_black,
+        idle_colour: Callable[[], str | None] | None = None,
     ):
         """`load_icon(app_id)` returns the app's icon, or None if it has none.
         Apps listed in `ignore` never get a look. `load_idle()` returns the
@@ -115,6 +133,9 @@ class Looks:
         self._load_idle = load_idle
         self._compose = compose  # lays a subject's picture out for the LCD
         self._compose_idle = compose_idle  # the same for the idle picture
+        # The system's own theme colour, if it has one; otherwise the idle
+        # picture's main colour is used.
+        self._idle_colour = idle_colour
         self._idle: dict[str, Look | None] = {}  # idle looks by picture path ('' = OS logo)
         self._remember = remember
         self._known: OrderedDict[str, Look | None] = OrderedDict()
@@ -133,14 +154,23 @@ class Looks:
                         picture = opened.convert("RGBA")
                 else:
                     picture = self._load_idle() if self._load_idle else None
-                look = (
-                    Look(dominant_colour(picture), self._compose_idle(picture)) if picture else None
-                )
+                look = None
+                if picture:
+                    theme_colour = (
+                        None if image_path or not self._idle_colour else self._idle_colour()
+                    )
+                    look = Look(
+                        theme_colour or dominant_colour(picture), self._compose_idle(picture)
+                    )
             except Exception as error:
                 log.warning("No idle look (%s): %s", image_path or "OS logo", error)
                 look = None
             self._idle[image_path] = look
         return self._idle[image_path]
+
+    def forget_idle(self) -> None:
+        """Build the idle look afresh next time (the theme has changed)."""
+        self._idle.clear()
 
     def look_for(self, app_id: str) -> Look | None:
         """The Look for an app id such as 'firefox.desktop'; None if unknown."""

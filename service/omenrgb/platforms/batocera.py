@@ -11,7 +11,8 @@ What this platform chooses:
 - RAM lights:   straight through the BIOS, if the acpi_call kernel module
                 is available; otherwise the RAM is left alone
 - what is in focus: the running game. Its picture is the artwork Batocera
-                scraped for it; with no game running, the Batocera logo.
+                scraped for it; with no game running, the background of the
+                active menu theme (or the Batocera logo if it has none).
 - sleep/wake:   Batocera runs the scripts in frontends/batocera/power
                 before sleeping and after waking; they signal this process
                 (SIGUSR1 = going to sleep, SIGUSR2 = woke up)
@@ -34,7 +35,7 @@ from ..core.lights import Lights
 from ..core.look import Looks, cover_lcd
 from ..core.ram import RamLights
 from ..core.service import Service
-from . import batocera_games, glib_runtime
+from . import batocera_games, batocera_theme, glib_runtime
 from .json_store import JsonSettings
 
 log = logging.getLogger(__name__)
@@ -48,8 +49,13 @@ ACPI_CALL = Path("/proc/acpi/call")
 # The helper sits beside the "service" folder, in the repo and on the drive.
 RAM_HELPER = Path(__file__).resolve().parents[3] / "helper" / "omenrgb_ram_helper.py"
 
-# On a games machine, following the game is the point: on unless switched off.
-DEFAULTS = {"auto-enabled": True}
+DEFAULTS = {
+    # On a games machine, following the game is the point: on unless switched off.
+    "auto-enabled": True,
+    # The RAM's own default effect is a rainbow, which ignores colours and so
+    # could never follow a game or the theme. Give it a plain colour instead.
+    "device-modes": {"RAM": "Static"},
+}
 
 
 def _load_picture(path: Path) -> Image.Image:
@@ -63,6 +69,21 @@ def _game_artwork(roms: Path):
         return _load_picture(artwork) if artwork else None
 
     return load
+
+
+def _idle_picture(logo: Path) -> Path:
+    """What to show in the menus: the active theme's background, so the PC
+    matches the theme; the Batocera logo if the theme has none we can use."""
+    background = batocera_theme.theme_background()
+    log.info("Menu look taken from %s", background or f"{logo} (no theme background found)")
+    return background or logo
+
+
+def _mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def _find_sticks() -> list[int]:
@@ -136,21 +157,23 @@ def main(argv: list[str] | None = None) -> int:
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(levelname)s %(name)s: %(message)s",
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
     )
 
     settings = JsonSettings(args.settings, DEFAULTS)
+    looks = Looks(
+        _game_artwork(args.roms),
+        load_idle=lambda: _load_picture(_idle_picture(args.logo)),
+        compose_idle=cover_lcd,  # menu backgrounds and the logo both suit a full screen
+    )
     service = Service(
         settings,
         LcdStreamer(hidraw.open_lcd),
         Lights(tracer.open_board, omen45l.HIDDEN_ZONES, omen45l.LED_GAMMA),
         ram=_ram_lights(),
         display_names=omen45l.DISPLAY_NAMES,
-        looks=Looks(
-            _game_artwork(args.roms),
-            load_idle=lambda: _load_picture(args.logo),
-            compose_idle=cover_lcd,  # the logo sits mid-picture: fill the screen with it
-        ),
+        looks=looks,
         fade=fade_frames,
         scheduler=glib_runtime.GLibScheduler(),
         watch_file=glib_runtime.watch_file,
@@ -166,9 +189,15 @@ def main(argv: list[str] | None = None) -> int:
     stop_following = glib_runtime.watch_file(str(args.subject_file), read_subject)
     stop_watching = glib_runtime.watch_file(str(args.settings), settings.reload)
 
+    theme_seen = [_mtime(batocera_theme.ES_SETTINGS)]
+
     def look_again() -> bool:
         read_subject()
         settings.reload()  # picks up hand edits even if file watching fails
+        if (now := _mtime(batocera_theme.ES_SETTINGS)) != theme_seen[0]:
+            theme_seen[0] = now  # the menu's settings changed: maybe a new theme
+            looks.forget_idle()
+            service.on_changed("auto-idle-image")
         return True
 
     glib_runtime.GLibScheduler().every(POLL_MS, look_again)
