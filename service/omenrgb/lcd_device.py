@@ -10,12 +10,18 @@ from pathlib import Path
 from .constants import LCD_DESCRIPTOR_PREFIX, LCD_HID_ID
 
 
-def find_hidraw(
-    sys_root: Path = Path("/sys/class/hidraw"), dev_root: Path = Path("/dev")
+def find_hid_node(
+    hid_id: str,
+    descriptor_prefix: bytes = b"",
+    sys_root: Path = Path("/sys/class/hidraw"),
+    dev_root: Path = Path("/dev"),
 ) -> Path | None:
-    """Return the /dev/hidrawN node of the LCD's data interface, or None.
+    """The /dev/hidrawN node of a USB HID device, or None.
 
-    The number N changes whenever the LCD reconnects, so always look it up.
+    `hid_id` is the device's id as written in sysfs ("0003:VVVVVVVV:PPPPPPPP").
+    A device with several interfaces is told apart by how its report
+    descriptor starts. The number N changes whenever the device
+    reconnects, so always look it up.
     """
     try:
         nodes = sorted(sys_root.iterdir())
@@ -23,13 +29,20 @@ def find_hidraw(
         return None
     for node in nodes:
         try:
-            is_lcd = LCD_HID_ID in (node / "device" / "uevent").read_text()
+            matches = hid_id in (node / "device" / "uevent").read_text()
             descriptor = (node / "device" / "report_descriptor").read_bytes()
         except OSError:
             continue
-        if is_lcd and descriptor.startswith(LCD_DESCRIPTOR_PREFIX):
+        if matches and descriptor.startswith(descriptor_prefix):
             return dev_root / node.name
     return None
+
+
+def find_hidraw(
+    sys_root: Path = Path("/sys/class/hidraw"), dev_root: Path = Path("/dev")
+) -> Path | None:
+    """The node of the cooler LCD's data interface, or None."""
+    return find_hid_node(LCD_HID_ID, LCD_DESCRIPTOR_PREFIX, sys_root, dev_root)
 
 
 class LcdDevice:

@@ -11,8 +11,8 @@ import math
 import time
 from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
-from openrgb.utils import RGBColor
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +41,22 @@ BREATH_SLOWEST_S, BREATH_FASTEST_S = 8.0, 1.0  # length of one breath in and out
 def zone_key(device_name: str, zone_name: str) -> str:
     """The key under which a zone's colour is saved in the settings."""
     return f"{device_name}/{zone_name}"
+
+
+class Colour(NamedTuple):
+    """One colour as sent to a lighting device.
+
+    Shaped so that the OpenRGB library accepts it in place of its own
+    colour type; that keeps this file free of any OpenRGB import, which
+    matters where OpenRGB is not installed.
+    """
+
+    red: int
+    green: int
+    blue: int
+
+    def pack(self, version: int = 0) -> bytes:
+        return bytes((self.red, self.green, self.blue, 0))
 
 
 class UniformColours(dict):
@@ -341,7 +357,7 @@ class Lights:
             return
         zones = self._visible_zones(device)
         zone_colours = [
-            RGBColor(
+            Colour(
                 *scale_colour(
                     colours.get(zone_key(device.name, zone.name), DEFAULT_COLOUR),
                     brightness if enabled else 0,
@@ -389,7 +405,7 @@ def _takes_no_colours(mode) -> bool:
 
 def _send_frame(glow: _Glow, level: float) -> None:
     """Send the glow's current colours, dimmed to `level` (0.0 .. 1.0)."""
-    frame = [RGBColor(*(round(part * level) for part in colour)) for colour in glow.shown]
+    frame = [Colour(*(round(part * level) for part in colour)) for colour in glow.shown]
     glow.device.set_colors(frame, fast=True)
 
 
