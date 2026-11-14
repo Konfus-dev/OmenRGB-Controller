@@ -42,5 +42,10 @@ as the file is saved. Only list what you want to change, for example:
 
 The log is `/userdata/system/logs/omen-lights.log`.
 
-RAM lights only work if the `acpi_call` kernel module is available for
-Batocera's kernel; without it the RAM keeps its own pattern.
+RAM lights need a small kernel module that is built for one exact Batocera
+kernel (the one for Batocera 43.1 is included). After a Batocera update the
+RAM may go back to its own pattern until a new module is built; see
+`frontends/batocera/modules/README.md` in the project.
+
+When the PC sleeps, the LCD and lights are switched off, and they come back
+when it wakes.

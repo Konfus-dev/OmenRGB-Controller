@@ -16,7 +16,9 @@ case "$1" in
         [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null && exit 0
         mkdir -p "$(dirname "$log")"
         # The RAM lights need this kernel module; without it they are skipped.
-        modprobe acpi_call 2>/dev/null || insmod "$app/modules/acpi_call.ko" 2>/dev/null || true
+        # (The module only fits the kernel version it was built for.)
+        [ -e /proc/acpi/call ] || modprobe acpi_call 2>/dev/null ||
+            insmod "$app/modules/$(uname -r)/acpi_call.ko" 2>>"$log" || true
         PYTHONPATH="$app/service" nohup python3 -m omenrgb --platform batocera \
             >"$log" 2>&1 &
         echo $! >"$pidfile"

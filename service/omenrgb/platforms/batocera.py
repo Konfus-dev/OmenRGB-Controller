@@ -12,11 +12,16 @@ What this platform chooses:
                 is available; otherwise the RAM is left alone
 - what is in focus: the running game. Its picture is the artwork Batocera
                 scraped for it; with no game running, the Batocera logo.
+- sleep/wake:   Batocera runs the scripts in frontends/batocera/power
+                before sleeping and after waking; they signal this process
+                (SIGUSR1 = going to sleep, SIGUSR2 = woke up)
 """
 
 import argparse
 import importlib.util
 import logging
+import signal
+from collections.abc import Callable
 from pathlib import Path
 
 from PIL import Image
@@ -36,6 +41,7 @@ log = logging.getLogger(__name__)
 
 SETTINGS_FILE = Path("/userdata/system/configs/omen-lights/settings.json")
 SUBJECT_FILE = Path("/var/run/omen-lights/now-playing")  # written by the game hook
+ASLEEP_MARKER = Path("/var/run/omen-lights/asleep")  # the suspend script waits for this
 OS_LOGO = Path("/usr/share/batocera/splash/boot-logo.png")
 ACPI_CALL = Path("/proc/acpi/call")
 # The helper sits beside the "service" folder, in the repo and on the drive.
@@ -90,6 +96,31 @@ def _follow_subject_file(path: Path, settings: JsonSettings):
     return glib_runtime.watch_file(str(path), read)
 
 
+def power_handlers(service, marker: Path) -> tuple[Callable[[], None], Callable[[], None]]:
+    """What to do when told the system is going to sleep, and that it woke.
+
+    Going to sleep ends by creating `marker`: the suspend script holds the
+    system back until it appears, so the lights are really off first.
+    """
+
+    def sleep() -> None:
+        try:
+            service.on_sleep()
+        except Exception:
+            log.exception("Could not switch everything off before sleep")
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
+
+    def wake() -> None:
+        marker.unlink(missing_ok=True)
+        try:
+            service.on_resume()
+        except Exception:
+            log.exception("Could not restore the lights after waking")
+
+    return sleep, wake
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--settings", type=Path, default=SETTINGS_FILE)
@@ -123,6 +154,10 @@ def main(argv: list[str] | None = None) -> int:
     stop_following = _follow_subject_file(args.subject_file, settings)
     stop_watching = glib_runtime.watch_file(str(args.settings), settings.reload)
     service.start()
+    going_to_sleep, woke_up = power_handlers(service, ASLEEP_MARKER)
+    ASLEEP_MARKER.unlink(missing_ok=True)
+    glib_runtime.on_signal(signal.SIGUSR1, going_to_sleep)
+    glib_runtime.on_signal(signal.SIGUSR2, woke_up)
     log.info("omenrgb service running (Batocera)")
     glib_runtime.run_until_stopped()
     stop_following()

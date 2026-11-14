@@ -26,10 +26,8 @@ mkdir -p "$app/service" "$app/helper"
 cp -r "$repo/service/omenrgb" "$app/service/"
 find "$app/service" -name __pycache__ -type d -exec rm -rf {} +
 cp "$repo/helper/omenrgb_ram_helper.py" "$app/helper/"
-if [[ -f "$repo/frontends/batocera/modules/acpi_call.ko" ]]; then
-    mkdir -p "$app/modules"
-    cp "$repo/frontends/batocera/modules/acpi_call.ko" "$app/modules/"
-fi
+rm -rf "$app/modules"
+cp -r "$repo/frontends/batocera/modules" "$app/modules"
 
 echo "==> Service switch (System Settings > Services > OMEN_LIGHTS)"
 mkdir -p "$share/system/services"
@@ -38,6 +36,12 @@ install -m 0755 "$repo/frontends/batocera/services/omen_lights" "$share/system/s
 echo "==> Game hook"
 mkdir -p "$share/system/scripts"
 install -m 0755 "$repo/frontends/batocera/scripts/omen-lights.sh" "$share/system/scripts/omen-lights.sh"
+
+echo "==> Sleep and wake hooks"
+hooks="$share/system/configs/emulationstation/scripts"
+mkdir -p "$hooks/suspend" "$hooks/resume"
+install -m 0755 "$repo/frontends/batocera/power/suspend/omen-lights.sh" "$hooks/suspend/omen-lights.sh"
+install -m 0755 "$repo/frontends/batocera/power/resume/omen-lights.sh" "$hooks/resume/omen-lights.sh"
 
 echo "==> Settings file (kept if it already exists)"
 mkdir -p "$share/system/configs/omen-lights"
