@@ -1,0 +1,28 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# OMEN Lights for Batocera. Shows up as a switch under
+#   Main menu > System Settings > Services
+# and makes the cooler LCD and case lights follow the game being played.
+#
+# Batocera calls this with "start" or "stop".
+
+app=/userdata/system/omen-lights
+pidfile=/var/run/omen-lights.pid
+log=/userdata/system/logs/omen-lights.log
+
+case "$1" in
+    start)
+        [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null && exit 0
+        mkdir -p "$(dirname "$log")"
+        # The RAM lights need this kernel module; without it they are skipped.
+        modprobe acpi_call 2>/dev/null || insmod "$app/modules/acpi_call.ko" 2>/dev/null || true
+        PYTHONPATH="$app/service" nohup python3 -m omenrgb --platform batocera \
+            >"$log" 2>&1 &
+        echo $! >"$pidfile"
+        ;;
+    stop)
+        [ -f "$pidfile" ] && kill "$(cat "$pidfile")" 2>/dev/null
+        rm -f "$pidfile"
+        ;;
+esac

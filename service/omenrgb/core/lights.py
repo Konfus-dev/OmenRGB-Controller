@@ -187,12 +187,12 @@ class Lights:
                 _disconnect(client)
                 return False
         except Exception as error:  # the library raises many different types
-            log.debug("OpenRGB not available: %s", error)
+            log.debug("Case lights not available: %s", error)
             if self._clock() - started > SLOW_FAILURE_S:
                 self._retry_at = self._clock() + RETRY_AFTER_SLOW_FAILURE_S
             return False
         self._client = client
-        log.info("OpenRGB connected, %d device(s)", len(client.devices))
+        log.info("Case lights connected, %d device(s)", len(client.devices))
         return True
 
     def check(self) -> bool:
@@ -206,7 +206,7 @@ class Lights:
         try:
             self._client.update()
         except Exception as error:
-            log.warning("Lost connection to OpenRGB: %s", error)
+            log.warning("Lost connection to the case lights: %s", error)
             self._drop()
             return False
         return True
@@ -284,7 +284,7 @@ class Lights:
                 if glow.active:
                     self._advance(glow, now)
         except Exception as error:
-            log.warning("Lost connection to OpenRGB while animating: %s", error)
+            log.warning("Lost connection to the case lights while animating: %s", error)
             self._drop()
 
     def finish_transitions(self) -> None:
@@ -295,7 +295,7 @@ class Lights:
                     glow.shown, glow.fading = list(glow.target), False
                     _send_frame(glow, 1.0)
         except Exception as error:
-            log.warning("Lost connection to OpenRGB: %s", error)
+            log.warning("Lost connection to the case lights: %s", error)
             self._drop()
 
     def _advance(self, glow: _Glow, now: float) -> None:

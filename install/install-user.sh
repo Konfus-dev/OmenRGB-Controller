@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Per-user install for OmenRGB-Linux-Controller. Run WITHOUT sudo:
+# Per-user install for OmenRGB-Controller. Run WITHOUT sudo:
 #     bash install/install-user.sh
 # Safe to run again after pulling changes or editing the settings schema.
 set -euo pipefail

@@ -14,7 +14,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from .constants import LCD_SIZE
 from .image_prep import encode_for_lcd
@@ -90,6 +90,11 @@ def icon_on_black(icon: Image.Image) -> bytes:
     return encode_for_lcd(screen)
 
 
+def cover_lcd(picture: Image.Image) -> bytes:
+    """An LCD-ready JPEG of the picture's centre, filling the whole screen."""
+    return encode_for_lcd(ImageOps.fit(picture.convert("RGB"), (LCD_SIZE, LCD_SIZE)))
+
+
 class Looks:
     """Works out, and remembers, the Look of each app."""
 
@@ -99,6 +104,8 @@ class Looks:
         remember: int = 64,
         ignore: Iterable[str] = (),
         load_idle: Callable[[], Image.Image | None] | None = None,
+        compose: Callable[[Image.Image], bytes] = icon_on_black,
+        compose_idle: Callable[[Image.Image], bytes] = icon_on_black,
     ):
         """`load_icon(app_id)` returns the app's icon, or None if it has none.
         Apps listed in `ignore` never get a look. `load_idle()` returns the
@@ -106,6 +113,8 @@ class Looks:
         self._load_icon = load_icon
         self._ignore = frozenset(ignore)
         self._load_idle = load_idle
+        self._compose = compose  # lays a subject's picture out for the LCD
+        self._compose_idle = compose_idle  # the same for the idle picture
         self._idle: dict[str, Look | None] = {}  # idle looks by picture path ('' = OS logo)
         self._remember = remember
         self._known: OrderedDict[str, Look | None] = OrderedDict()
@@ -124,7 +133,9 @@ class Looks:
                         picture = opened.convert("RGBA")
                 else:
                     picture = self._load_idle() if self._load_idle else None
-                look = Look(dominant_colour(picture), icon_on_black(picture)) if picture else None
+                look = (
+                    Look(dominant_colour(picture), self._compose_idle(picture)) if picture else None
+                )
             except Exception as error:
                 log.warning("No idle look (%s): %s", image_path or "OS logo", error)
                 look = None
@@ -140,7 +151,7 @@ class Looks:
             return self._known[app_id]
         try:
             icon = self._load_icon(app_id)
-            look = Look(dominant_colour(icon), icon_on_black(icon)) if icon else None
+            look = Look(dominant_colour(icon), self._compose(icon)) if icon else None
         except Exception as error:  # icon themes and image files can fail in many ways
             log.warning("No look for %s: %s", app_id, error)
             look = None

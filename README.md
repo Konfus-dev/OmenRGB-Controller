@@ -1,8 +1,9 @@
-# OmenRGB-Linux-Controller
+# OmenRGB-Controller
 
-Control the lighting and the CPU-cooler LCD of an **HP OMEN 45L** desktop on
-Linux, from the GNOME top-right system menu. HP's own software for this only
-exists for Windows.
+Control the lighting and the CPU-cooler LCD of an **HP OMEN 45L** desktop
+without HP's Windows software. It runs on a GNOME desktop (developed on
+Ubuntu) and on Batocera, and is built so that other systems and front ends
+can be added without touching the core.
 
 This is an unofficial hobby project, not affiliated with HP. Use it at your
 own risk.
@@ -47,11 +48,11 @@ own risk.
 OpenRGB lists seven light zones for the case. On the 45L only the front logo
 and the three front fans have lights, so the rest are hidden.
 
-## Install
+## Install on a GNOME desktop
 
 ```sh
-git clone https://github.com/Konfus-dev/OmenRGB-Linux-Controller.git
-cd OmenRGB-Linux-Controller
+git clone https://github.com/Konfus-dev/OmenRGB-Controller.git
+cd OmenRGB-Controller
 
 # 1. Once, as root: installs OpenRGB and acpi_call, gives your user access
 #    to the LCD, and installs the small RAM lighting helper.
@@ -87,32 +88,48 @@ everything else. Talking to these RAM sticks directly, as other tools do,
 jams their control bus on this board until the next reboot, so nothing here
 does that. More detail is in [docs/design.md](docs/design.md).
 
-## Changing things
+## Batocera
 
-The code is meant to be easy to change. Each file has one job:
+From a Linux PC, with the Batocera drive plugged in and its `SHARE`
+partition mounted:
 
-| File | Job |
+```sh
+sudo bash install/install-batocera.sh /path/to/SHARE
+```
+
+Then boot Batocera and switch **OMEN_LIGHTS** on under **Main menu > System
+Settings > Services**. In the menus the LCD shows the Batocera logo; while a
+game runs it shows that game's artwork, and the lights take its colour.
+Settings are a small JSON file; see
+[frontends/batocera/README.md](frontends/batocera/README.md).
+
+## How the code is organised
+
+The code is meant to be easy to change and to extend to other systems.
+
+| Folder | What lives there |
 |---|---|
-| `service/omenrgb/constants.py` | Every hardware number and timing value |
-| `service/omenrgb/lcd_protocol.py` | The byte packets the LCD understands |
-| `service/omenrgb/image_prep.py` | Turns any image into a 480x480 JPEG |
-| `service/omenrgb/lcd_device.py` | Finds and opens the LCD |
-| `service/omenrgb/lcd_streamer.py` | Keeps the image on screen, reconnects |
-| `service/omenrgb/lights.py` | Asks OpenRGB for case-light colours and effects |
-| `service/omenrgb/openrgb_config.py` | Keeps OpenRGB away from everything but the case lights |
-| `service/omenrgb/ram.py` | Turns RAM effects and colours into register writes |
-| `service/omenrgb/app_look.py` | Auto mode: an app's icon, its main colour, its LCD picture |
-| `helper/omenrgb_ram_helper.py` | Root helper: checks RAM writes and hands them to the BIOS |
-| `service/omenrgb/service.py` | Connects settings to the two halves |
-| `extension/…/extension.js` | The top-right menu button |
-| `extension/…/prefs.js` | The settings window |
-| `extension/…/schemas/*.gschema.xml` | The list of settings |
+| `service/omenrgb/core/` | What the LCD and lights should do. No operating-system or hardware-library imports. `interfaces.py` describes what it needs handed in; `settings_schema.py` lists every setting. |
+| `service/omenrgb/backends/` | One file per way of reaching hardware: `hidraw.py` (LCD), `openrgb.py` and `tracer.py` (case lights), `ram_bios.py` (RAM). |
+| `service/omenrgb/platforms/` | One file per system (`gnome.py`, `batocera.py`) that picks backends and wires in that system's settings storage, timers and "what is in focus". |
+| `service/omenrgb/omen45l.py` | Facts about this PC model: zone names, hidden zones, colour correction. |
+| `frontends/` | What you see and touch: the GNOME Shell extension, the Batocera service switch and game hook. A front end only reads and writes settings. |
+| `helper/` | The small root helper for RAM lights on desktop Linux. |
+| `install/`, `systemd/` | Set-up scripts and service definitions. |
 
-After editing the service: `systemctl --user restart omenrgb`.
-After editing the settings list: `bash install/install-user.sh`.
-After editing the root helper: `sudo bash install/setup.sh`.
-After editing the extension: log out and back in (Wayland cannot reload an
-extension in place).
+**Adding a system** (another distro, Windows): write
+`platforms/<name>.py` with a `main()` that builds a `Service` from the
+pieces that fit, and list it in `service/omenrgb/__main__.py`. Reuse the
+backends that work there; add one where they do not.
+
+**Adding a front end**: anything that can write the settings in
+`core/settings_schema.py` and read the `status` report is a front end.
+
+On the GNOME desktop:
+after editing the service: `systemctl --user restart omenrgb`;
+after editing the settings list: `bash install/install-user.sh`;
+after editing the root helper: `sudo bash install/setup.sh`;
+after editing the extension's menu button: log out and back in.
 
 To run the tests:
 

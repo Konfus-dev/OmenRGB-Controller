@@ -137,3 +137,21 @@ def test_no_idle_look_without_a_logo_or_when_it_fails(tmp_path):
 def test_is_ignored():
     looks = Looks(lambda app_id: None, ignore=["settings.desktop"])
     assert looks.is_ignored("settings.desktop") and not looks.is_ignored("other.desktop")
+
+
+def test_cover_lcd_fills_the_whole_screen():
+    from omenrgb.core.look import cover_lcd
+
+    wide = Image.new("RGB", (1920, 1080), (0, 0, 200))
+    image = Image.open(io.BytesIO(cover_lcd(wide)))
+    assert image.size == (480, 480) and image.getpixel((5, 5))[2] > 150  # no black border
+
+
+def test_looks_can_be_told_how_to_lay_pictures_out():
+    looks = Looks(
+        lambda subject: icon((255, 0, 0, 255), size=64),
+        load_idle=lambda: icon((0, 255, 0, 255), size=64),
+        compose=lambda image: b"art",
+        compose_idle=lambda image: b"idle",
+    )
+    assert looks.look_for("game").jpeg == b"art" and looks.idle_look().jpeg == b"idle"

@@ -1,6 +1,6 @@
 # Design
 
-How OmenRGB-Linux-Controller is put together, and why. For installing and
+How OmenRGB-Controller is put together, and why. For installing and
 using it, see the [README](../README.md).
 
 ## Goals
@@ -21,27 +21,51 @@ using it, see the [README](../README.md).
   control bus until the next reboot (see "RAM lights" below).
 - Run day-to-day code as root, apart from one small, single-purpose helper.
 
-## Parts
+## Layers
 
 ```
- GNOME Shell extension        GSettings         omenrgb service (your user)
-  extension.js  (button)  ------------------>    lcd_*.py  ----> cooler LCD (USB)
-  prefs.js      (window)  <--- status key ---    lights.py ----> OpenRGB server --> case lights
-                                                 ram.py    ----> root helper --> BIOS --> RAM lights
+ front ends                 platforms                 core                  backends
+ (what you touch)           (one per system)          (the behaviour)       (hardware)
+
+ GNOME Shell extension --+
+                         +-> gnome.py -----+
+                                           +--> Service ---> LcdStreamer -> hidraw.py    -> cooler LCD
+ Batocera service switch +                 |      |-------> Lights ------> openrgb.py   -> case lights
+ and game hook ----------+-> batocera.py --+      |                  \---> tracer.py    -> case lights
+                                                  \-------> RamLights ---> ram_bios.py  -> BIOS -> RAM
 ```
 
-| Part | Runs as | Job |
+- **core** (`service/omenrgb/core/`) decides what the LCD and lights
+  should show. It imports no operating-system or hardware-library modules.
+  Everything it needs is handed to `Service`: settings, a scheduler, the
+  objects that reach hardware. `interfaces.py` describes those shapes.
+- **backends** (`service/omenrgb/backends/`) each reach one kind of
+  hardware one way.
+- **platforms** (`service/omenrgb/platforms/`) are the only place that
+  knows about a particular system. Each has a `main()` that picks backends,
+  a settings store, timers, and a source for "what is in focus", and builds
+  the `Service` from them.
+- **front ends** (`frontends/`) never touch hardware. A front end writes
+  the settings listed in `core/settings_schema.py` and reads the `status`
+  report; that list is the whole contract.
+
+| | GNOME desktop | Batocera |
 |---|---|---|
-| `extension/…/extension.js` | you, inside GNOME Shell | The menu button. Opens or focuses the settings window. |
-| `extension/…/prefs.js` | you | The settings window. Reads and writes settings only. |
-| `service/omenrgb/` | you (systemd user unit) | Watches the settings and drives the hardware. |
-| OpenRGB server | you (systemd user unit) | Talks to the case-light board. Limited to that one detector. |
-| `helper/omenrgb_ram_helper.py` | root (systemd, socket-activated) | Passes checked RAM lighting writes to the BIOS. Nothing else. |
+| Front end | Shell extension: menu button and settings window | Service switch, game hook, a JSON file |
+| Settings store | GSettings (`gsettings_store.py`) | JSON file (`json_store.py`) |
+| Case lights | OpenRGB server (`openrgb.py`) | own driver (`tracer.py`) |
+| RAM lights | root helper over a socket | in-process (the service is root), if `acpi_call` exists |
+| In focus | the focused app; its icon from the icon theme | the running game; its scraped artwork |
+| Idle picture | the OS logo | the Batocera logo |
+| Sleep/wake | systemd-logind | not handled |
+| Timers, file watching | GLib (`glib_runtime.py`) | GLib |
 
-The extension never touches hardware, so a bug in it cannot stall the
-desktop. The service is the only thing that knows about devices; it reports
-what it found in the `status` setting, and the window builds itself from
-that report instead of hard-coding devices.
+A bug in a front end cannot stall hardware handling, and a new system does
+not touch the core: it is one more file in `platforms/`.
+
+On the GNOME desktop the parts run as: the extension inside GNOME Shell,
+the service and an OpenRGB server as systemd user units, and the RAM helper
+as a socket-activated root unit.
 
 ## Cooler LCD
 
@@ -59,7 +83,7 @@ The screen stores nothing; without a stream of frames it returns to the
 OMEN logo. The service re-sends the current image every 500 ms, the rate
 HP's software uses for a still picture. When the picture changes, a short
 burst of blended frames crossfades from the old one to the new
-(`lcd_fade.py`). Confirmed on firmware V3.05.024.
+(`core/lcd_fade.py`). Confirmed on firmware V3.05.024.
 
 Protocol facts are from the notes in
 [omen-led-lcd](https://github.com/Xedecimal/omen-led-lcd); none of its code
@@ -70,10 +94,10 @@ is used.
 USB `103c:84fd` "HP TracerLED". OpenRGB drives it with its "HP Omen 30L"
 driver. It reports seven zones; on the 45L only the front logo and the
 three front fans have lights, so the other three are hidden
-(`constants.HIDDEN_ZONES`).
+(`omen45l.HIDDEN_ZONES`).
 
 OpenRGB runs with its own configuration folder in which every detector
-except that one is switched off (`openrgb_config.py`). Its normal RAM
+except that one is switched off (`backends/openrgb.py`). Its normal RAM
 probing is what jams the RAM bus.
 
 Plain colours and breathing are not left to the board. The service puts it
@@ -117,7 +141,7 @@ password prompt per change (unusable). The helper:
 Register meanings come from HP's module and from OpenRGB's
 `KingstonFuryDRAMController`.
 
-Each write takes about 65 ms through the BIOS, so `ram.py` remembers what
+Each write takes about 65 ms through the BIOS, so `core/ram.py` remembers what
 every register holds and sends only the ones that changed, on a worker
 thread, newest request wins. A colour change is then about ten writes
 instead of forty, and never delays the LCD or the case lights. The RAM
@@ -127,7 +151,7 @@ cannot fade smoothly at that speed; it switches in one step.
 
 Optional. The extension writes the focused app's id (for example
 `firefox.desktop`) to the `focused-app` setting, and only while auto mode is
-on. Everything else happens in the service (`app_look.py`): it finds the
+on. Everything else happens in the service (`core/look.py`, with the icon lookup in `platforms/gtk_icons.py`): it finds the
 app's icon in the current icon theme, picks the icon's most striking colour
 (grouping pixels by hue, ignoring greys, then making the winner vivid enough
 for LEDs), and builds an LCD picture of the icon on black. That colour
@@ -143,8 +167,10 @@ waking it sends every setting again, in case the hardware lost them.
 
 ## Settings
 
-One GSettings schema, `org.gnome.shell.extensions.omenrgb`, in
-`extension/…/schemas/`. The extension writes; the service watches. The
+Every setting and its default is listed in `core/settings_schema.py`. On
+GNOME they are stored in GSettings (schema in
+`frontends/gnome-shell/…/schemas/`, checked against that list by a test);
+on Batocera in a JSON file. The front end writes; the service watches. The
 `status` key goes the other way: the service writes a JSON report (what is
 connected, the last image error, and the lighting devices with their
 zones, effects and display names).

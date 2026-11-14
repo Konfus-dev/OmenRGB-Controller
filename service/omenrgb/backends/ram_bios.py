@@ -56,3 +56,20 @@ def send_to_helper(batch: list[Command], path: str = HELPER_SOCKET) -> None:
                 reply = stream.readline().strip()
                 if reply != "OK":
                     raise OSError(f"RAM helper refused '{line}': {reply or 'no answer'}")
+
+
+def direct_sender(helper):
+    """A RAM sender for a service that is itself root (Batocera).
+
+    `helper` is the root helper's module (helper/omenrgb_ram_helper.py),
+    loaded by the platform. Its checks are used exactly as in the socket
+    case, so there is still only one place that decides what may be sent.
+    """
+
+    def send(batch: list[Command]) -> None:
+        for address, register, value in batch:
+            reply = helper.handle_line(f"W {address:02x} {register:02x} {value:02x}")
+            if reply != "OK":
+                raise OSError(f"RAM write refused: {reply}")
+
+    return send
