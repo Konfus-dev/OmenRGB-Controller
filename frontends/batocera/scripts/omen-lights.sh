@@ -11,4 +11,10 @@ mkdir -p "$(dirname "$now_playing")"
 case "$1" in
     gameStart) printf '%s\n' "$5" >"$now_playing" ;;
     gameStop) : >"$now_playing" ;;
+    *) exit 0 ;;
 esac
+
+# Nudge the service so it looks at the file straight away.
+pidfile=/var/run/omen-lights.pid
+[ -f "$pidfile" ] && kill -HUP "$(cat "$pidfile")" 2>/dev/null
+exit 0

@@ -41,3 +41,20 @@ def test_waking_without_having_slept_is_harmless(tmp_path):
     _sleep, wake = power_handlers(service, tmp_path / "asleep")
     wake()
     assert service.calls == ["resume"]
+
+
+def test_subject_reader_copies_the_hooks_file_into_the_settings(tmp_path):
+    from omenrgb.platforms.batocera import subject_reader
+    from omenrgb.platforms.json_store import JsonSettings
+
+    now_playing = tmp_path / "now-playing"
+    settings = JsonSettings(tmp_path / "settings.json")
+    read = subject_reader(now_playing, settings)
+    read()  # no file yet
+    assert settings.get("focused-app") == ""
+    now_playing.write_text("/userdata/roms/snes/Game.smc\n")
+    read()
+    assert settings.get("focused-app") == "/userdata/roms/snes/Game.smc"
+    now_playing.write_text("")
+    read()
+    assert settings.get("focused-app") == ""

@@ -41,6 +41,7 @@ log = logging.getLogger(__name__)
 
 SETTINGS_FILE = Path("/userdata/system/configs/omen-lights/settings.json")
 SUBJECT_FILE = Path("/var/run/omen-lights/now-playing")  # written by the game hook
+POLL_MS = 1000  # how often the game hook's file and the settings are re-read
 ASLEEP_MARKER = Path("/var/run/omen-lights/asleep")  # the suspend script waits for this
 OS_LOGO = Path("/usr/share/batocera/splash/boot-logo.png")
 ACPI_CALL = Path("/proc/acpi/call")
@@ -86,8 +87,8 @@ def _ram_lights() -> RamLights | None:
     )
 
 
-def _follow_subject_file(path: Path, settings: JsonSettings):
-    """Keep the "focused-app" setting equal to the game hook's file."""
+def subject_reader(path: Path, settings) -> Callable[[], None]:
+    """A function that copies the game hook's file into "focused-app"."""
 
     def read() -> None:
         try:
@@ -96,10 +97,7 @@ def _follow_subject_file(path: Path, settings: JsonSettings):
             subject = ""
         settings.set("focused-app", subject)
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.touch()
-    read()
-    return glib_runtime.watch_file(str(path), read)
+    return read
 
 
 def power_handlers(service, marker: Path) -> tuple[Callable[[], None], Callable[[], None]]:
@@ -157,8 +155,23 @@ def main(argv: list[str] | None = None) -> int:
         scheduler=glib_runtime.GLibScheduler(),
         watch_file=glib_runtime.watch_file,
     )
-    stop_following = _follow_subject_file(args.subject_file, settings)
+    # Three ways to hear that a game started or stopped, because missing it
+    # means the PC never changes: the hook signals us (SIGHUP), the file is
+    # watched, and it is looked at once a second regardless.
+    args.subject_file.parent.mkdir(parents=True, exist_ok=True)
+    args.subject_file.touch()
+    read_subject = subject_reader(args.subject_file, settings)
+    read_subject()
+    glib_runtime.on_signal(signal.SIGHUP, read_subject)
+    stop_following = glib_runtime.watch_file(str(args.subject_file), read_subject)
     stop_watching = glib_runtime.watch_file(str(args.settings), settings.reload)
+
+    def look_again() -> bool:
+        read_subject()
+        settings.reload()  # picks up hand edits even if file watching fails
+        return True
+
+    glib_runtime.GLibScheduler().every(POLL_MS, look_again)
     service.start()
     going_to_sleep, woke_up = power_handlers(service, ASLEEP_MARKER)
     ASLEEP_MARKER.unlink(missing_ok=True)
