@@ -7,8 +7,9 @@ What this platform chooses:
 - case lights:  an OpenRGB server
 - RAM lights:   the root helper, which asks the BIOS
 - what is in focus: the app the extension reports; its icon comes from the
-                icon theme. With nothing in focus the PC matches the desktop:
-                the wallpaper on the LCD, and its main colour on the lights
+                icon theme. With nothing in focus the LCD shows what is in
+                ~/.config/omenrgb/lcd/ if anything, else the wallpaper, and
+                the lights take that picture's main colour
 - sleep/wake:   systemd-logind
 """
 
@@ -21,6 +22,7 @@ from gi.repository import GLib
 from .. import omen45l
 from ..backends import hidraw, openrgb, ram_bios
 from ..core.lcd_fade import fade_frames
+from ..core.lcd_folder import load_lcd_folder
 from ..core.lcd_streamer import LcdStreamer
 from ..core.lights import Lights
 from ..core.look import Looks, cover_lcd
@@ -44,9 +46,16 @@ def default_schema_dir() -> Path:
     return extensions / EXTENSION_UUID / "schemas"
 
 
+def default_lcd_folder() -> Path:
+    """Where the owner can put an animation or picture for the LCD to show
+    when nothing is in focus (see core/lcd_folder.py)."""
+    return Path(GLib.get_user_config_dir()) / "omenrgb" / "lcd"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--schema-dir", type=Path, default=default_schema_dir())
+    parser.add_argument("--lcd-folder", type=Path, default=default_lcd_folder())
     parser.add_argument("--verbose", action="store_true", help="log more detail")
     args = parser.parse_args(argv)
 
@@ -64,7 +73,11 @@ def main(argv: list[str] | None = None) -> int:
     theme = gnome_theme.DesktopTheme()
 
     def idle_picture():
-        """The wallpaper; the OS logo if it cannot be used."""
+        """What the owner put in the LCD folder; else the wallpaper; else
+        the OS logo."""
+        override = load_lcd_folder(args.lcd_folder, cover_lcd)
+        if override is not None:
+            return override
         wallpaper = theme.wallpaper()
         if wallpaper:
             try:

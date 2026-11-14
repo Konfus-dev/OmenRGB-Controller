@@ -30,6 +30,7 @@ from PIL import Image
 from .. import omen45l
 from ..backends import hidraw, ram_bios, tracer
 from ..core.lcd_fade import fade_frames
+from ..core.lcd_folder import load_lcd_folder
 from ..core.lcd_streamer import LcdStreamer
 from ..core.lights import Lights
 from ..core.look import Looks, cover_lcd
@@ -72,18 +73,17 @@ def _game_artwork(roms: Path):
 
 
 def _idle_picture(logo: Path):
-    """What to show in the menus, so the PC matches the menu theme: the
-    theme's own LCD animation or picture if it ships one, else the picture
-    behind its system list, else the Batocera logo."""
-    theme = batocera_theme.active_theme()
-    if theme:
-        animation = batocera_theme.lcd_animation(theme)
-        if animation:
-            log.info("Menu look: %d-frame animation from theme %s", len(animation.frames), theme)
-            return animation
-    still = (theme and batocera_theme.lcd_still(theme)) or batocera_theme.theme_background()
-    log.info("Menu look taken from %s", still or f"{logo} (nothing usable in the theme)")
-    return _load_picture(still or logo)
+    """What to show in the menus, so the PC matches the menu theme: what the
+    theme's own LCD folder asks for, else the picture behind its system
+    list, else the Batocera logo."""
+    folder = batocera_theme.lcd_folder()
+    override = load_lcd_folder(folder, cover_lcd) if folder else None
+    if override is not None:
+        log.info("Menu look taken from %s", folder)
+        return override
+    background = batocera_theme.theme_background()
+    log.info("Menu look taken from %s", background or f"{logo} (nothing usable in the theme)")
+    return _load_picture(background or logo)
 
 
 def _mtime(path: Path) -> float:

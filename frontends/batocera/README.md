@@ -5,11 +5,10 @@ OMEN_LIGHTS**.
 
 While it is on:
 
-- **In the menus** the PC matches your menu theme. The LCD shows, best
-  first: an animation the theme ships for it, a still picture the theme
-  ships for it, or the theme's menu background (the Batocera logo if it has
-  none). The lights take that picture's main colour. A change of
-  theme is picked up within a second or two.
+- **In the menus** the PC matches your menu theme. If the theme has an
+  `omen-lights/` folder, the LCD shows what is in it (an animation or a
+  picture); otherwise it shows the theme's menu background. The lights take
+  that picture's main colour.
 - **While a game runs** the LCD shows that game's artwork (its logo if one
   was scraped, otherwise its box or a screenshot) and the lights take the
   artwork's main colour. Games without artwork keep the menu look.
@@ -54,13 +53,17 @@ RAM may go back to its own pattern until a new module is built; see
 When the PC sleeps, the LCD and lights are switched off, and they come back
 when it wakes.
 
-## For theme authors: what the LCD shows
+## The theme's LCD folder
 
-Put either of these in your theme's folder and it is used in the menus:
+A folder named `omen-lights` inside a theme's folder decides what the LCD
+shows in the menus while that theme is active. Without it, the theme's menu
+background is shown. The folder may hold:
 
-- `omen-lights/`: an animation. LCD-ready frames (480x480 JPEG, at most
-  60,000 bytes each, named so they sort in order, such as `000.jpg`,
-  `001.jpg`, ...) played in a loop, and optionally a text file `frame_ms`
-  holding the time per frame in milliseconds (default 100). The screen is
-  round, so keep what matters inside the circle.
-- `omen-lights.png` (or `.jpg`, `.webp`): one still picture.
+- **Several JPEG files: an animation.** They must be LCD-ready (480x480, at
+  most 60,000 bytes each) and are played in name order, in a loop
+  (`000.jpg`, `001.jpg`, ...). A text file `frame_ms` may give the time per
+  frame in milliseconds (default 100).
+- **One picture** (PNG, JPEG, WebP, ...): shown as a still.
+- **One animated file** (GIF, animated WebP or PNG): played as an animation.
+
+The screen is round, so keep what matters inside the circle.

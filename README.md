@@ -106,6 +106,24 @@ game runs it shows that game's artwork, and the lights take its colour.
 Settings are a small JSON file; see
 [frontends/batocera/README.md](frontends/batocera/README.md).
 
+## Choosing what the LCD shows when nothing is in focus
+
+With auto mode on, the LCD normally shows your wallpaper (on Batocera: the
+menu theme's background) while no app or game is in focus. Each system has
+one folder that overrides this:
+
+| System | Folder |
+|---|---|
+| GNOME desktop | `~/.config/omenrgb/lcd/` |
+| Batocera | `omen-lights/` inside the active theme's folder |
+
+Put **one picture** in it for a still, **one animated file** (GIF, animated
+WebP or PNG) for an animation, or **several LCD-ready JPEG frames**
+(480x480, at most 60,000 bytes each, named in order) for a pre-rendered
+animation; a text file `frame_ms` sets the time per frame. Empty the folder
+to go back to the default. On the desktop, restart the service afterwards:
+`systemctl --user restart omenrgb`.
+
 ## How the code is organised
 
 The code is meant to be easy to change and to extend to other systems.
