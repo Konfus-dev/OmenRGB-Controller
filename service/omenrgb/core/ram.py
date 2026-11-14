@@ -1,33 +1,25 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """RAM stick lighting (Kingston Fury DDR5, as fitted by HP).
 
-The sticks are never spoken to directly: on the OMEN 45L that jams the
-RAM's control bus until the next reboot. Every command goes to the small
-root helper (helper/omenrgb_ram_helper.py), which asks the BIOS to deliver
-it, the way HP's own software does.
+This file decides which lighting registers to write. Delivering the writes
+is a backend's job (backends/ram_bios.py): the sticks are never spoken to
+directly, because on the OMEN 45L that jams the RAM's control bus until the
+next reboot.
 
 Register meanings come from HP's OMEN Gaming Hub and from OpenRGB's
 KingstonFuryDRAMController.
 """
 
 import logging
-import socket
 import threading
 import time
 from collections.abc import Callable
-from pathlib import Path
 
 from .lights import DEFAULT_COLOUR, DeviceInfo, EffectOptions, scale_colour, zone_key
 
 log = logging.getLogger(__name__)
 
-HELPER_SOCKET = "/run/omenrgb-ram.sock"
-# The helper normally answers within a tenth of a second. Waiting longer
-# would hold up the rest of the service, which has an LCD to keep fed.
-HELPER_TIMEOUT_S = 1.0
 RETRY_AFTER_FAILURE_S = 30  # leave a failing helper alone for this long
-I2C_DEVICES = Path("/sys/bus/i2c/devices")
-SPD_DRIVER_NAME = "spd5118"  # the kernel's name for a DDR5 stick's info chip
 
 DEVICE_NAME = "RAM"
 MODES = ("Static", "Rainbow", "Breathing")
@@ -62,24 +54,6 @@ BREATH_HOLD_DIM = 1
 BREATH_MID_POINT = 0.64  # where the "mid" level sits between dimmest and brightest
 
 Command = tuple[int, int, int]  # (stick address, register, value)
-
-
-def find_sticks(i2c_devices: Path = I2C_DEVICES) -> list[int]:
-    """Addresses of the sticks that are fitted, lowest slot first.
-
-    A stick in slot N has its info chip at 0x50 + N and is addressed for
-    lighting as 0xC0 + 2 * N.
-    """
-    sticks = []
-    for slot in range(4):
-        for node in i2c_devices.glob(f"*-00{0x50 + slot:02x}"):
-            try:
-                if (node / "name").read_text().strip() == SPD_DRIVER_NAME:
-                    sticks.append(0xC0 + 2 * slot)
-                    break
-            except OSError:
-                continue
-    return sticks
 
 
 def _between(slowest: int, fastest: int, percent: int) -> int:
@@ -166,24 +140,6 @@ def commands(
     return result
 
 
-def send_to_helper(batch: list[Command], path: str = HELPER_SOCKET) -> None:
-    """Send commands to the root helper. Raises OSError if anything fails.
-
-    An empty batch just checks that the helper answers.
-    """
-    lines = [f"W {a:02x} {r:02x} {v:02x}" for a, r, v in batch] or ["PING"]
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
-        connection.settimeout(HELPER_TIMEOUT_S)
-        connection.connect(path)
-        with connection.makefile("rw", encoding="ascii") as stream:
-            for line in lines:
-                stream.write(line + "\n")
-                stream.flush()
-                reply = stream.readline().strip()
-                if reply != "OK":
-                    raise OSError(f"RAM helper refused '{line}': {reply or 'no answer'}")
-
-
 class RamLights:
     """The RAM sticks, presented like any other lighting device.
 
@@ -196,8 +152,8 @@ class RamLights:
 
     def __init__(
         self,
-        send: Callable[[list[Command]], None] = send_to_helper,
-        find: Callable[[], list[int]] = find_sticks,
+        send: Callable[[list[Command]], None],
+        find: Callable[[], list[int]],
         gamma: float = 1.0,
         clock: Callable[[], float] = time.monotonic,
         background: bool = False,

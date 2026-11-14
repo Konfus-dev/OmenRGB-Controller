@@ -3,7 +3,7 @@ import io
 
 from PIL import Image
 
-from omenrgb.app_look import AppLooks, Look, dominant_colour, icon_on_black
+from omenrgb.core.look import Look, Looks, dominant_colour, icon_on_black
 
 
 def icon(background, blob=None, size=64):
@@ -65,14 +65,14 @@ def test_looks_are_built_once_per_app_and_remembered():
         loads.append(app_id)
         return icon((255, 0, 0, 255), size=256)
 
-    looks = AppLooks(load)
+    looks = Looks(load)
     first = looks.look_for("firefox.desktop")
     assert isinstance(first, Look) and first.colour == "#FF0000" and first.jpeg[:2] == b"\xff\xd8"
     assert looks.look_for("firefox.desktop") is first and loads == ["firefox.desktop"]
 
 
 def test_unknown_app_or_no_app_has_no_look():
-    looks = AppLooks(lambda app_id: None)
+    looks = Looks(lambda app_id: None)
     assert looks.look_for("mystery.desktop") is None
     assert looks.look_for("") is None
 
@@ -81,11 +81,11 @@ def test_a_broken_icon_does_not_raise():
     def load(app_id):
         raise RuntimeError("icon theme exploded")
 
-    assert AppLooks(load).look_for("x.desktop") is None
+    assert Looks(load).look_for("x.desktop") is None
 
 
 def test_only_so_many_looks_are_remembered():
-    looks = AppLooks(lambda app_id: icon((255, 0, 0, 255), size=64), remember=2)
+    looks = Looks(lambda app_id: icon((255, 0, 0, 255), size=64), remember=2)
     a = looks.look_for("a")
     looks.look_for("b")
     looks.look_for("c")  # pushes "a" out
@@ -95,6 +95,63 @@ def test_only_so_many_looks_are_remembered():
 def test_ignored_apps_have_no_look():
     # While our own settings window has focus, the owner should see their
     # normal colours, not the colours of the settings app's icon.
-    looks = AppLooks(lambda app_id: icon((255, 0, 0, 255), size=64), ignore=["settings.desktop"])
+    looks = Looks(lambda app_id: icon((255, 0, 0, 255), size=64), ignore=["settings.desktop"])
     assert looks.look_for("settings.desktop") is None
     assert looks.look_for("other.desktop") is not None
+
+
+# --- the idle look: what to show when no app (or game) is in focus ---------------
+
+
+def test_idle_look_comes_from_the_os_logo_and_is_remembered():
+    loads = []
+
+    def load_idle():
+        loads.append(1)
+        return icon((255, 80, 0, 255), size=128)
+
+    looks = Looks(lambda app_id: None, load_idle=load_idle)
+    idle = looks.idle_look()
+    assert idle.colour is not None and idle.jpeg[:2] == b"\xff\xd8"
+    assert looks.idle_look() is idle and loads == [1]
+
+
+def test_idle_look_can_be_a_picture_the_owner_chose(tmp_path):
+    path = tmp_path / "mine.png"
+    icon((0, 0, 255, 255), size=128).save(path)
+    looks = Looks(lambda app_id: None, load_idle=lambda: icon((255, 0, 0, 255)))
+    assert looks.idle_look(str(path)).colour == "#0000FF"
+    assert looks.idle_look().colour == "#FF0000"  # the default is still available
+
+
+def test_no_idle_look_without_a_logo_or_when_it_fails(tmp_path):
+    assert Looks(lambda app_id: None).idle_look() is None
+
+    def broken():
+        raise RuntimeError("no logo")
+
+    assert Looks(lambda app_id: None, load_idle=broken).idle_look() is None
+    assert Looks(lambda app_id: None).idle_look(str(tmp_path / "missing.png")) is None
+
+
+def test_is_ignored():
+    looks = Looks(lambda app_id: None, ignore=["settings.desktop"])
+    assert looks.is_ignored("settings.desktop") and not looks.is_ignored("other.desktop")
+
+
+def test_cover_lcd_fills_the_whole_screen():
+    from omenrgb.core.look import cover_lcd
+
+    wide = Image.new("RGB", (1920, 1080), (0, 0, 200))
+    image = Image.open(io.BytesIO(cover_lcd(wide)))
+    assert image.size == (480, 480) and image.getpixel((5, 5))[2] > 150  # no black border
+
+
+def test_looks_can_be_told_how_to_lay_pictures_out():
+    looks = Looks(
+        lambda subject: icon((255, 0, 0, 255), size=64),
+        load_idle=lambda: icon((0, 255, 0, 255), size=64),
+        compose=lambda image: b"art",
+        compose_idle=lambda image: b"idle",
+    )
+    assert looks.look_for("game").jpeg == b"art" and looks.idle_look().jpeg == b"idle"

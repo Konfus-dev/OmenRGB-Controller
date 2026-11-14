@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Auto mode: what the lights and LCD should look like for a given app.
+"""Auto mode: what the lights and LCD should look like for whatever is in
+focus (an app on a desktop, a game on a console-style system).
 
-For the app that currently has focus, this finds its icon, picks the icon's
-most striking colour for the lights, and builds an LCD picture of the icon.
+Given a picture of the thing in focus (its icon or artwork), this picks the
+picture's most striking colour for the lights and builds an LCD image of
+it. Finding the picture is the platform's job.
 """
 
 import colorsys
@@ -12,7 +14,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from .constants import LCD_SIZE
 from .image_prep import encode_for_lcd
@@ -20,7 +22,6 @@ from .image_prep import encode_for_lcd
 log = logging.getLogger(__name__)
 
 ICON_SIZE_ON_LCD = 300  # the screen is round, so the icon stays well inside it
-ICON_RENDER_SIZE = 512  # how large icons are drawn before being scaled down
 
 # --- choosing a colour (change these to taste) ---------------------------------
 SAMPLE_SIZE = 48  # about this many pixels per side are looked at
@@ -89,7 +90,12 @@ def icon_on_black(icon: Image.Image) -> bytes:
     return encode_for_lcd(screen)
 
 
-class AppLooks:
+def cover_lcd(picture: Image.Image) -> bytes:
+    """An LCD-ready JPEG of the picture's centre, filling the whole screen."""
+    return encode_for_lcd(ImageOps.fit(picture.convert("RGB"), (LCD_SIZE, LCD_SIZE)))
+
+
+class Looks:
     """Works out, and remembers, the Look of each app."""
 
     def __init__(
@@ -97,13 +103,44 @@ class AppLooks:
         load_icon: Callable[[str], Image.Image | None],
         remember: int = 64,
         ignore: Iterable[str] = (),
+        load_idle: Callable[[], Image.Image | None] | None = None,
+        compose: Callable[[Image.Image], bytes] = icon_on_black,
+        compose_idle: Callable[[Image.Image], bytes] = icon_on_black,
     ):
         """`load_icon(app_id)` returns the app's icon, or None if it has none.
-        Apps listed in `ignore` never get a look."""
+        Apps listed in `ignore` never get a look. `load_idle()` returns the
+        picture for when nothing is in focus (normally the OS logo)."""
         self._load_icon = load_icon
         self._ignore = frozenset(ignore)
+        self._load_idle = load_idle
+        self._compose = compose  # lays a subject's picture out for the LCD
+        self._compose_idle = compose_idle  # the same for the idle picture
+        self._idle: dict[str, Look | None] = {}  # idle looks by picture path ('' = OS logo)
         self._remember = remember
         self._known: OrderedDict[str, Look | None] = OrderedDict()
+
+    def is_ignored(self, app_id: str) -> bool:
+        """True for apps during which the owner's normal settings stay on."""
+        return app_id in self._ignore
+
+    def idle_look(self, image_path: str = "") -> Look | None:
+        """The Look for when nothing is in focus: `image_path` if given,
+        otherwise the OS logo. None if there is no usable picture."""
+        if image_path not in self._idle:
+            try:
+                if image_path:
+                    with Image.open(image_path) as opened:
+                        picture = opened.convert("RGBA")
+                else:
+                    picture = self._load_idle() if self._load_idle else None
+                look = (
+                    Look(dominant_colour(picture), self._compose_idle(picture)) if picture else None
+                )
+            except Exception as error:
+                log.warning("No idle look (%s): %s", image_path or "OS logo", error)
+                look = None
+            self._idle[image_path] = look
+        return self._idle[image_path]
 
     def look_for(self, app_id: str) -> Look | None:
         """The Look for an app id such as 'firefox.desktop'; None if unknown."""
@@ -114,7 +151,7 @@ class AppLooks:
             return self._known[app_id]
         try:
             icon = self._load_icon(app_id)
-            look = Look(dominant_colour(icon), icon_on_black(icon)) if icon else None
+            look = Look(dominant_colour(icon), self._compose(icon)) if icon else None
         except Exception as error:  # icon themes and image files can fail in many ways
             log.warning("No look for %s: %s", app_id, error)
             look = None
@@ -122,48 +159,3 @@ class AppLooks:
         while len(self._known) > self._remember:
             self._known.popitem(last=False)
         return look
-
-
-def load_app_icon(app_id: str) -> Image.Image | None:
-    """Find an installed app's icon in the current icon theme and draw it."""
-    import gi  # imported here: GTK is slow to load and only auto mode needs it
-
-    gi.require_version("Gtk", "4.0")
-    gi.require_version("Gdk", "4.0")
-    gi.require_version("GdkPixbuf", "2.0")
-    from gi.repository import Gdk, GdkPixbuf, Gio, Gtk
-
-    try:
-        gi.require_version("GioUnix", "2.0")
-        from gi.repository import GioUnix as DesktopFiles  # newer GLib
-    except (ValueError, ImportError):
-        DesktopFiles = Gio  # older GLib keeps DesktopAppInfo here
-    try:
-        app = DesktopFiles.DesktopAppInfo.new(app_id)
-    except TypeError:  # PyGObject's way of saying "no such desktop file"
-        return None
-    if app is None or app.get_icon() is None:
-        return None
-
-    Gtk.init_check()
-    display = Gdk.Display.get_default()
-    theme = Gtk.IconTheme.get_for_display(display) if display else Gtk.IconTheme()
-    found = theme.lookup_by_gicon(
-        app.get_icon(), ICON_RENDER_SIZE, 1, Gtk.TextDirection.NONE, Gtk.IconLookupFlags(0)
-    )
-    file = found.get_file() if found else None
-    if file is None or file.get_path() is None:
-        return None
-    pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(
-        file.get_path(), ICON_RENDER_SIZE, ICON_RENDER_SIZE
-    )
-    mode = "RGBA" if pixbuf.get_has_alpha() else "RGB"
-    return Image.frombuffer(
-        mode,
-        (pixbuf.get_width(), pixbuf.get_height()),
-        pixbuf.get_pixels(),
-        "raw",
-        mode,
-        pixbuf.get_rowstride(),
-        1,  # rows run top to bottom
-    ).copy()

@@ -9,6 +9,7 @@
 // For auto mode this file also tells the service which app has focus, by
 // writing its id to the "focused-app" setting.
 
+import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import Shell from 'gi://Shell';
 
@@ -17,6 +18,10 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {QuickToggle, SystemIndicator} from 'resource:///org/gnome/shell/ui/quickSettings.js';
 
 const ICON = 'keyboard-brightness-symbolic';
+
+// Focus is on "nothing" for an instant whenever a menu or the overview
+// opens. Only report "nothing in focus" once it has lasted this long.
+const NO_FOCUS_DELAY_MS = 800;
 
 // GNOME shows every extension's settings in a window owned by this app.
 const PREFS_APP_ID = 'org.gnome.Shell.Extensions';
@@ -96,6 +101,7 @@ export default class OmenLightsExtension extends Extension {
     }
 
     _stopFocusTracking() {
+        this._cancelNoFocusTimer();
         this._settings?.set_string('focused-app', '');
         if (this._focusId)
             this._tracker.disconnect(this._focusId);
@@ -105,13 +111,34 @@ export default class OmenLightsExtension extends Extension {
         this._tracker = this._settings = null;
     }
 
+    _cancelNoFocusTimer() {
+        if (this._noFocusTimer)
+            GLib.source_remove(this._noFocusTimer);
+        this._noFocusTimer = null;
+    }
+
     _publishFocus() {
+        this._cancelNoFocusTimer();
         if (!this._settings.get_boolean('auto-enabled'))
             return; // do not write anything while auto mode is off
-        // Focus is briefly on "nothing" whenever a menu or the overview
-        // opens; keep the last real app instead of flickering.
-        const id = this._tracker.focus_app?.get_id();
-        if (id && id !== this._settings.get_string('focused-app'))
+
+        const id = this._tracker.focus_app?.get_id() ?? '';
+        if (id) {
+            this._report(id);
+            return;
+        }
+        // Nothing has focus. Wait, then report it only if still true: the
+        // service then shows the idle look (the OS logo and colour).
+        this._noFocusTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, NO_FOCUS_DELAY_MS, () => {
+            this._noFocusTimer = null;
+            if (!this._tracker.focus_app)
+                this._report('');
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _report(id) {
+        if (id !== this._settings.get_string('focused-app'))
             this._settings.set_string('focused-app', id);
     }
 }

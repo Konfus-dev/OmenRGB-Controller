@@ -11,8 +11,7 @@ import math
 import time
 from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
-
-from openrgb.utils import RGBColor
+from typing import NamedTuple
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +40,22 @@ BREATH_SLOWEST_S, BREATH_FASTEST_S = 8.0, 1.0  # length of one breath in and out
 def zone_key(device_name: str, zone_name: str) -> str:
     """The key under which a zone's colour is saved in the settings."""
     return f"{device_name}/{zone_name}"
+
+
+class Colour(NamedTuple):
+    """One colour as sent to a lighting device.
+
+    Shaped so that the OpenRGB library accepts it in place of its own
+    colour type; that keeps this file free of any OpenRGB import, which
+    matters where OpenRGB is not installed.
+    """
+
+    red: int
+    green: int
+    blue: int
+
+    def pack(self, version: int = 0) -> bytes:
+        return bytes((self.red, self.green, self.blue, 0))
 
 
 class UniformColours(dict):
@@ -172,12 +187,12 @@ class Lights:
                 _disconnect(client)
                 return False
         except Exception as error:  # the library raises many different types
-            log.debug("OpenRGB not available: %s", error)
+            log.debug("Case lights not available: %s", error)
             if self._clock() - started > SLOW_FAILURE_S:
                 self._retry_at = self._clock() + RETRY_AFTER_SLOW_FAILURE_S
             return False
         self._client = client
-        log.info("OpenRGB connected, %d device(s)", len(client.devices))
+        log.info("Case lights connected, %d device(s)", len(client.devices))
         return True
 
     def check(self) -> bool:
@@ -191,7 +206,7 @@ class Lights:
         try:
             self._client.update()
         except Exception as error:
-            log.warning("Lost connection to OpenRGB: %s", error)
+            log.warning("Lost connection to the case lights: %s", error)
             self._drop()
             return False
         return True
@@ -269,7 +284,7 @@ class Lights:
                 if glow.active:
                     self._advance(glow, now)
         except Exception as error:
-            log.warning("Lost connection to OpenRGB while animating: %s", error)
+            log.warning("Lost connection to the case lights while animating: %s", error)
             self._drop()
 
     def finish_transitions(self) -> None:
@@ -280,7 +295,7 @@ class Lights:
                     glow.shown, glow.fading = list(glow.target), False
                     _send_frame(glow, 1.0)
         except Exception as error:
-            log.warning("Lost connection to OpenRGB: %s", error)
+            log.warning("Lost connection to the case lights: %s", error)
             self._drop()
 
     def _advance(self, glow: _Glow, now: float) -> None:
@@ -341,7 +356,7 @@ class Lights:
             return
         zones = self._visible_zones(device)
         zone_colours = [
-            RGBColor(
+            Colour(
                 *scale_colour(
                     colours.get(zone_key(device.name, zone.name), DEFAULT_COLOUR),
                     brightness if enabled else 0,
@@ -389,7 +404,7 @@ def _takes_no_colours(mode) -> bool:
 
 def _send_frame(glow: _Glow, level: float) -> None:
     """Send the glow's current colours, dimmed to `level` (0.0 .. 1.0)."""
-    frame = [RGBColor(*(round(part * level) for part in colour)) for colour in glow.shown]
+    frame = [Colour(*(round(part * level) for part in colour)) for colour in glow.shown]
     glow.device.set_colors(frame, fast=True)
 
 

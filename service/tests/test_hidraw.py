@@ -3,7 +3,7 @@ import socket
 
 import pytest
 
-from omenrgb.lcd_device import LcdDevice, find_hidraw
+from omenrgb.backends.hidraw import LcdDevice, find_hidraw
 
 LCD_ID = "HID_ID=0003:000003F0:00007397\nHID_NAME=LCD-PUMP\n"
 

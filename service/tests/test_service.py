@@ -5,9 +5,10 @@ from pathlib import Path
 import pytest
 from gi.repository import GLib
 
-from omenrgb.image_prep import ImageError
-from omenrgb.lights import DeviceInfo, EffectOptions
-from omenrgb.service import Service
+from omenrgb.core.image_prep import ImageError
+from omenrgb.core.lights import DeviceInfo, EffectOptions
+from omenrgb.core.service import Service
+from omenrgb.platforms.gsettings_store import GSettingsStore as Store
 
 
 class FakeStreamer:
@@ -97,7 +98,7 @@ class FakePrepare:
 def parts(settings):
     settings.set_string("lcd-image", "/pics/cat.png")
     streamer, lights, prepare = FakeStreamer(), FakeLights(), FakePrepare()
-    service = Service(settings, streamer, lights, prepare)
+    service = Service(Store(settings), streamer, lights, prepare)
     yield service, settings, streamer, lights, prepare
     service.stop()
 
@@ -224,7 +225,7 @@ def test_status_key_change_is_ignored(parts):
 
 def test_lights_reconnect_reapplies(settings):
     lights = FakeLights(available=False)
-    service = Service(settings, FakeStreamer(), lights, FakePrepare())
+    service = Service(Store(settings), FakeStreamer(), lights, FakePrepare())
     service.start()
     assert lights.applied == [] and status(settings)["openrgb"] is False
     lights.available = True
@@ -237,7 +238,7 @@ def test_lights_reconnect_reapplies(settings):
 
 def test_openrgb_down_does_not_touch_lcd(settings):
     streamer = FakeStreamer()
-    service = Service(settings, streamer, FakeLights(available=False), FakePrepare())
+    service = Service(Store(settings), streamer, FakeLights(available=False), FakePrepare())
     service.start()
     service.tick_slow()
     assert streamer.reconnect_ticks >= 1
@@ -273,7 +274,7 @@ def test_openrgb_going_away_is_noticed_and_recovered(parts):
 @pytest.fixture
 def with_ram(settings):
     ram = FakeLights(name="RAM")
-    service = Service(settings, FakeStreamer(), FakeLights(), FakePrepare(), ram=ram)
+    service = Service(Store(settings), FakeStreamer(), FakeLights(), FakePrepare(), ram=ram)
     yield service, settings, ram
     service.stop()
 
@@ -339,7 +340,7 @@ def test_a_failing_tick_does_not_stop_its_timer():
 
 def test_ram_helper_appearing_later_is_picked_up(settings):
     ram = FakeLights(available=False, name="RAM")
-    service = Service(settings, FakeStreamer(), FakeLights(), FakePrepare(), ram=ram)
+    service = Service(Store(settings), FakeStreamer(), FakeLights(), FakePrepare(), ram=ram)
     service.start()
     assert status(settings)["ram"] is False and ram.applied == []
     ram.available = True
@@ -350,7 +351,7 @@ def test_ram_helper_appearing_later_is_picked_up(settings):
 
 def test_status_uses_friendly_names_where_known(settings):
     service = Service(
-        settings,
+        Store(settings),
         FakeStreamer(),
         FakeLights(),
         FakePrepare(),
@@ -434,10 +435,22 @@ def test_resume_from_sleep_sends_everything_again(with_ram):
 class FakeLooks:
     """Stands in for AppLooks: firefox is orange, everything else unknown."""
 
+    idle = None  # tests set this to give the OS an idle look
+
     def look_for(self, app_id):
-        from omenrgb.app_look import Look
+        from omenrgb.core.look import Look
 
         return Look("#FF8800", b"firefox icon jpeg") if app_id == "firefox.desktop" else None
+
+    def is_ignored(self, app_id):
+        return app_id == "settings.desktop"
+
+    def idle_look(self, image_path=None):
+        from omenrgb.core.look import Look
+
+        if image_path:
+            return Look("#00FF00", b"jpeg of " + image_path.encode())
+        return self.idle
 
 
 @pytest.fixture
@@ -445,7 +458,7 @@ def auto(settings):
     settings.set_string("lcd-image", "/pics/cat.png")
     settings.set_value("zone-colours", GLib.Variant("a{ss}", {"Case/Logo": "#0000FF"}))
     streamer, lights = FakeStreamer(), FakeLights()
-    service = Service(settings, streamer, lights, FakePrepare(), looks=FakeLooks())
+    service = Service(Store(settings), streamer, lights, FakePrepare(), looks=FakeLooks())
     service.start()
     yield service, settings, streamer, lights
     service.stop()
@@ -598,7 +611,7 @@ def fake_fade(old, new, steps):
 def fading(settings):
     settings.set_string("lcd-image", "/pics/cat.png")
     streamer = FakeStreamer()
-    service = Service(settings, streamer, FakeLights(), FakePrepare(), fade=fake_fade)
+    service = Service(Store(settings), streamer, FakeLights(), FakePrepare(), fade=fake_fade)
     service.start()
     service.finish_lcd_fade()
     streamer.images.clear()
@@ -645,3 +658,47 @@ def test_removing_the_picture_fades_out_then_lets_the_logo_return(fading):
     service.on_changed("lcd-image")
     service.finish_lcd_fade()
     assert streamer.images[-2] == b"black" and streamer.images[-1] is None
+
+
+@pytest.fixture
+def auto_idle(auto):
+    from omenrgb.core.look import Look
+
+    service, settings, streamer, lights = auto
+    service._looks.idle = Look("#E95420", b"os logo jpeg")
+    settings.set_boolean("auto-enabled", True)
+    service.on_changed("auto-enabled")
+    return service, settings, streamer, lights
+
+
+def test_nothing_in_focus_shows_the_os_look(auto_idle):
+    service, settings, streamer, lights = auto_idle
+    focus(service, settings, "firefox.desktop")
+    focus(service, settings, "")
+    assert streamer.images[-1] == b"os logo jpeg"
+    assert lights.applied[-1][3].get("Case/Logo") == "#E95420"
+    assert status(settings)["auto"] == {"app": "", "colour": "#E95420"}
+
+
+def test_an_app_without_an_icon_shows_the_os_look(auto_idle):
+    service, settings, streamer, _lights = auto_idle
+    focus(service, settings, "mystery.desktop")
+    assert streamer.images[-1] == b"os logo jpeg"
+
+
+def test_our_own_settings_window_still_shows_the_normal_look(auto_idle):
+    service, settings, streamer, lights = auto_idle
+    focus(service, settings, "settings.desktop")
+    assert streamer.images[-1] == b"jpeg of cat.png (fill)"
+    assert lights.applied[-1][3] == {"Case/Logo": "#0000FF"}
+
+
+def test_the_owner_can_choose_the_idle_picture_and_colour(auto_idle):
+    service, settings, streamer, lights = auto_idle
+    settings.set_string("auto-idle-image", "/pics/xbox.png")
+    settings.set_string("auto-idle-colour", "#00AA00")
+    service.on_changed("auto-idle-image")
+    service.on_changed("auto-idle-colour")
+    focus(service, settings, "")
+    assert streamer.images[-1] == b"jpeg of /pics/xbox.png"
+    assert lights.applied[-1][3].get("Case/Logo") == "#00AA00"

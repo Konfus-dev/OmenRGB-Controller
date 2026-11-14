@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-from omenrgb.lights import DeviceInfo, EffectOptions
-from omenrgb.ram import RamLights, commands, find_sticks
+from omenrgb.backends.ram_bios import find_sticks
+from omenrgb.core.lights import DeviceInfo, EffectOptions
+from omenrgb.core.ram import RamLights, commands
 
 BEGIN, END = 0x53, 0x44
 LEFT, RIGHT = 0xC2, 0xC6  # slots 1 and 3, as on the test machine

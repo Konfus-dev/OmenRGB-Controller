@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 from gi.repository import Gio
 
-from omenrgb.settings import load_settings
+from omenrgb.platforms.gsettings_store import load_settings
 
 REPO = Path(__file__).resolve().parents[2]
-SCHEMA_SOURCE = REPO / "extension" / "omenrgb@konfus-dev.github.io" / "schemas"
+SCHEMA_SOURCE = REPO / "frontends" / "gnome-shell" / "omenrgb@konfus-dev.github.io" / "schemas"
 
 
 @pytest.fixture

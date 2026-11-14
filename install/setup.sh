@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# One-time system setup for OmenRGB-Linux-Controller. Run once with:
+# One-time system setup for OmenRGB-Controller. Run once with:
 #     sudo bash install/setup.sh
 # It is safe to run again. Apart from the small RAM lighting helper it
 # installs, everything in this project runs without root.

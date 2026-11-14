@@ -81,10 +81,20 @@
       <default>true</default>
       <summary>In auto mode, show the focused app's icon on the LCD</summary>
     </key>
+    <key name="auto-idle-image" type="s">
+      <default>''</default>
+      <summary>In auto mode, the picture shown when nothing is in focus</summary>
+      <description>Absolute path. Empty uses the operating system's logo.</description>
+    </key>
+    <key name="auto-idle-colour" type="s">
+      <default>''</default>
+      <summary>In auto mode, the light colour when nothing is in focus</summary>
+      <description>'#RRGGBB'. Empty takes the colour from the idle picture.</description>
+    </key>
     <key name="focused-app" type="s">
       <default>''</default>
       <summary>Written by the extension: the app that has focus</summary>
-      <description>An app id such as 'firefox.desktop'. Only kept up to date while auto mode is on.</description>
+      <description>An app id such as 'firefox.desktop', or empty when nothing has focus. Only kept up to date while auto mode is on.</description>
     </key>
 
     <key name="status" type="s">
