@@ -98,3 +98,42 @@ def test_ignored_apps_have_no_look():
     looks = AppLooks(lambda app_id: icon((255, 0, 0, 255), size=64), ignore=["settings.desktop"])
     assert looks.look_for("settings.desktop") is None
     assert looks.look_for("other.desktop") is not None
+
+
+# --- the idle look: what to show when no app (or game) is in focus ---------------
+
+
+def test_idle_look_comes_from_the_os_logo_and_is_remembered():
+    loads = []
+
+    def load_idle():
+        loads.append(1)
+        return icon((255, 80, 0, 255), size=128)
+
+    looks = AppLooks(lambda app_id: None, load_idle=load_idle)
+    idle = looks.idle_look()
+    assert idle.colour is not None and idle.jpeg[:2] == b"\xff\xd8"
+    assert looks.idle_look() is idle and loads == [1]
+
+
+def test_idle_look_can_be_a_picture_the_owner_chose(tmp_path):
+    path = tmp_path / "mine.png"
+    icon((0, 0, 255, 255), size=128).save(path)
+    looks = AppLooks(lambda app_id: None, load_idle=lambda: icon((255, 0, 0, 255)))
+    assert looks.idle_look(str(path)).colour == "#0000FF"
+    assert looks.idle_look().colour == "#FF0000"  # the default is still available
+
+
+def test_no_idle_look_without_a_logo_or_when_it_fails(tmp_path):
+    assert AppLooks(lambda app_id: None).idle_look() is None
+
+    def broken():
+        raise RuntimeError("no logo")
+
+    assert AppLooks(lambda app_id: None, load_idle=broken).idle_look() is None
+    assert AppLooks(lambda app_id: None).idle_look(str(tmp_path / "missing.png")) is None
+
+
+def test_is_ignored():
+    looks = AppLooks(lambda app_id: None, ignore=["settings.desktop"])
+    assert looks.is_ignored("settings.desktop") and not looks.is_ignored("other.desktop")

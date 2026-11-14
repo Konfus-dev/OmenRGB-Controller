@@ -434,10 +434,22 @@ def test_resume_from_sleep_sends_everything_again(with_ram):
 class FakeLooks:
     """Stands in for AppLooks: firefox is orange, everything else unknown."""
 
+    idle = None  # tests set this to give the OS an idle look
+
     def look_for(self, app_id):
         from omenrgb.app_look import Look
 
         return Look("#FF8800", b"firefox icon jpeg") if app_id == "firefox.desktop" else None
+
+    def is_ignored(self, app_id):
+        return app_id == "settings.desktop"
+
+    def idle_look(self, image_path=None):
+        from omenrgb.app_look import Look
+
+        if image_path:
+            return Look("#00FF00", b"jpeg of " + image_path.encode())
+        return self.idle
 
 
 @pytest.fixture
@@ -645,3 +657,47 @@ def test_removing_the_picture_fades_out_then_lets_the_logo_return(fading):
     service.on_changed("lcd-image")
     service.finish_lcd_fade()
     assert streamer.images[-2] == b"black" and streamer.images[-1] is None
+
+
+@pytest.fixture
+def auto_idle(auto):
+    from omenrgb.app_look import Look
+
+    service, settings, streamer, lights = auto
+    service._looks.idle = Look("#E95420", b"os logo jpeg")
+    settings.set_boolean("auto-enabled", True)
+    service.on_changed("auto-enabled")
+    return service, settings, streamer, lights
+
+
+def test_nothing_in_focus_shows_the_os_look(auto_idle):
+    service, settings, streamer, lights = auto_idle
+    focus(service, settings, "firefox.desktop")
+    focus(service, settings, "")
+    assert streamer.images[-1] == b"os logo jpeg"
+    assert lights.applied[-1][3].get("Case/Logo") == "#E95420"
+    assert status(settings)["auto"] == {"app": "", "colour": "#E95420"}
+
+
+def test_an_app_without_an_icon_shows_the_os_look(auto_idle):
+    service, settings, streamer, _lights = auto_idle
+    focus(service, settings, "mystery.desktop")
+    assert streamer.images[-1] == b"os logo jpeg"
+
+
+def test_our_own_settings_window_still_shows_the_normal_look(auto_idle):
+    service, settings, streamer, lights = auto_idle
+    focus(service, settings, "settings.desktop")
+    assert streamer.images[-1] == b"jpeg of cat.png (fill)"
+    assert lights.applied[-1][3] == {"Case/Logo": "#0000FF"}
+
+
+def test_the_owner_can_choose_the_idle_picture_and_colour(auto_idle):
+    service, settings, streamer, lights = auto_idle
+    settings.set_string("auto-idle-image", "/pics/xbox.png")
+    settings.set_string("auto-idle-colour", "#00AA00")
+    service.on_changed("auto-idle-image")
+    service.on_changed("auto-idle-colour")
+    focus(service, settings, "")
+    assert streamer.images[-1] == b"jpeg of /pics/xbox.png"
+    assert lights.applied[-1][3].get("Case/Logo") == "#00AA00"

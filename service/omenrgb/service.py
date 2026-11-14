@@ -18,7 +18,7 @@ from pathlib import Path
 from gi.repository import Gio, GLib
 
 from . import constants as c
-from .app_look import AppLooks, Look, load_app_icon
+from .app_look import AppLooks, Look, load_app_icon, load_os_logo
 from .image_prep import prepare_jpeg
 from .lcd_device import LcdDevice, find_hidraw
 from .lcd_fade import fade_frames
@@ -31,7 +31,14 @@ log = logging.getLogger(__name__)
 
 LCD_IMAGE_KEYS = ("lcd-image", "lcd-fit")
 LCD_BRIGHTNESS_KEYS = ("lcd-enabled", "lcd-brightness")
-AUTO_KEYS = ("auto-enabled", "auto-lights", "auto-lcd", "focused-app")
+AUTO_KEYS = (
+    "auto-enabled",
+    "auto-lights",
+    "auto-lcd",
+    "auto-idle-image",
+    "auto-idle-colour",
+    "focused-app",
+)
 # Changes arriving within this time of each other are sent as one. It only
 # needs to cover a slider being dragged; fades hide the rest.
 LIGHTS_DEBOUNCE_MS = 40
@@ -155,10 +162,27 @@ class Service:
     # --- auto mode -------------------------------------------------------------
 
     def _refresh_look(self) -> None:
-        """Work out what auto mode wants for the app that now has focus."""
+        """Work out what auto mode wants shown right now.
+
+        An app (or game) with a usable icon gets its own look. Nothing in
+        focus, or something without an icon, gets the idle look: the OS
+        logo and its colour unless the owner chose otherwise. Apps on the
+        ignore list leave the owner's normal settings showing.
+        """
         self._look = None
-        if self._looks and self._settings.get_boolean("auto-enabled"):
-            self._look = self._looks.look_for(self._settings.get_string("focused-app"))
+        if not (self._looks and self._settings.get_boolean("auto-enabled")):
+            return
+        subject = self._settings.get_string("focused-app")
+        if self._looks.is_ignored(subject):
+            return
+        self._look = self._looks.look_for(subject) or self._idle_look()
+
+    def _idle_look(self) -> Look | None:
+        idle = self._looks.idle_look(self._settings.get_string("auto-idle-image"))
+        colour = self._settings.get_string("auto-idle-colour")
+        if idle and colour:
+            idle = Look(colour, idle.jpeg)
+        return idle
 
     def _auto_lcd(self) -> bytes | None:
         """The picture auto mode wants on the LCD, if any."""
@@ -407,6 +431,13 @@ class Service:
         self._sync_animation_timer()  # the connection may have come or gone
         self.publish_status()
 
+    def _followed_app(self) -> str:
+        """The app whose look is showing; empty for the idle look or none."""
+        subject = self._settings.get_string("focused-app")
+        if self._look and self._looks and self._looks.look_for(subject) == self._look:
+            return subject
+        return ""
+
     def _describe(self, device: DeviceInfo) -> dict:
         """One lighting device as the settings window needs it.
 
@@ -435,7 +466,7 @@ class Service:
                 "ram": bool(self._ram and self._ram.connected),
                 "error": self._error,
                 "auto": {
-                    "app": self._settings.get_string("focused-app") if self._look else "",
+                    "app": self._followed_app(),
                     "colour": (self._look.colour or "") if self._look else "",
                 },
                 "devices": [
@@ -565,7 +596,7 @@ def main(argv: list[str] | None = None) -> int:
         Lights(_connect_openrgb, c.HIDDEN_ZONES, c.LED_GAMMA),
         ram=RamLights(gamma=c.LED_GAMMA, background=True),
         display_names=c.DISPLAY_NAMES,
-        looks=AppLooks(load_app_icon, ignore=c.AUTO_IGNORED_APPS),
+        looks=AppLooks(load_app_icon, ignore=c.AUTO_IGNORED_APPS, load_idle=load_os_logo),
         fade=fade_frames,
     )
     loop = GLib.MainLoop()

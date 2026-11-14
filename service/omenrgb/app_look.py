@@ -97,13 +97,38 @@ class AppLooks:
         load_icon: Callable[[str], Image.Image | None],
         remember: int = 64,
         ignore: Iterable[str] = (),
+        load_idle: Callable[[], Image.Image | None] | None = None,
     ):
         """`load_icon(app_id)` returns the app's icon, or None if it has none.
-        Apps listed in `ignore` never get a look."""
+        Apps listed in `ignore` never get a look. `load_idle()` returns the
+        picture for when nothing is in focus (normally the OS logo)."""
         self._load_icon = load_icon
         self._ignore = frozenset(ignore)
+        self._load_idle = load_idle
+        self._idle: dict[str, Look | None] = {}  # idle looks by picture path ('' = OS logo)
         self._remember = remember
         self._known: OrderedDict[str, Look | None] = OrderedDict()
+
+    def is_ignored(self, app_id: str) -> bool:
+        """True for apps during which the owner's normal settings stay on."""
+        return app_id in self._ignore
+
+    def idle_look(self, image_path: str = "") -> Look | None:
+        """The Look for when nothing is in focus: `image_path` if given,
+        otherwise the OS logo. None if there is no usable picture."""
+        if image_path not in self._idle:
+            try:
+                if image_path:
+                    with Image.open(image_path) as opened:
+                        picture = opened.convert("RGBA")
+                else:
+                    picture = self._load_idle() if self._load_idle else None
+                look = Look(dominant_colour(picture), icon_on_black(picture)) if picture else None
+            except Exception as error:
+                log.warning("No idle look (%s): %s", image_path or "OS logo", error)
+                look = None
+            self._idle[image_path] = look
+        return self._idle[image_path]
 
     def look_for(self, app_id: str) -> Look | None:
         """The Look for an app id such as 'firefox.desktop'; None if unknown."""
@@ -124,14 +149,24 @@ class AppLooks:
         return look
 
 
+def load_os_logo() -> Image.Image | None:
+    """The operating system's logo, as named in /etc/os-release."""
+    import gi
+
+    gi.require_version("Gio", "2.0")
+    from gi.repository import Gio, GLib
+
+    # Exactly the icon the OS names; "fallback" lookups pick unrelated icons.
+    name = GLib.get_os_info("LOGO") or "distributor-logo"
+    return _draw_themed_icon(Gio.ThemedIcon.new(name))
+
+
 def load_app_icon(app_id: str) -> Image.Image | None:
     """Find an installed app's icon in the current icon theme and draw it."""
     import gi  # imported here: GTK is slow to load and only auto mode needs it
 
-    gi.require_version("Gtk", "4.0")
-    gi.require_version("Gdk", "4.0")
-    gi.require_version("GdkPixbuf", "2.0")
-    from gi.repository import Gdk, GdkPixbuf, Gio, Gtk
+    gi.require_version("Gio", "2.0")
+    from gi.repository import Gio
 
     try:
         gi.require_version("GioUnix", "2.0")
@@ -145,18 +180,38 @@ def load_app_icon(app_id: str) -> Image.Image | None:
     if app is None or app.get_icon() is None:
         return None
 
+    return _draw_themed_icon(app.get_icon())
+
+
+def _draw_themed_icon(icon) -> Image.Image | None:
+    """Look a Gio icon up in the current icon theme and draw it."""
+    import gi
+
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Gdk", "4.0")
+    gi.require_version("GdkPixbuf", "2.0")
+    from gi.repository import Gdk, Gtk
+
     Gtk.init_check()
     display = Gdk.Display.get_default()
     theme = Gtk.IconTheme.get_for_display(display) if display else Gtk.IconTheme()
     found = theme.lookup_by_gicon(
-        app.get_icon(), ICON_RENDER_SIZE, 1, Gtk.TextDirection.NONE, Gtk.IconLookupFlags(0)
+        icon, ICON_RENDER_SIZE, 1, Gtk.TextDirection.NONE, Gtk.IconLookupFlags(0)
     )
     file = found.get_file() if found else None
     if file is None or file.get_path() is None:
         return None
-    pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(
-        file.get_path(), ICON_RENDER_SIZE, ICON_RENDER_SIZE
-    )
+    return draw_image_file(file.get_path())
+
+
+def draw_image_file(path: str) -> Image.Image:
+    """Any picture file GdkPixbuf can read (SVG included) as a PIL image."""
+    import gi
+
+    gi.require_version("GdkPixbuf", "2.0")
+    from gi.repository import GdkPixbuf
+
+    pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(path, ICON_RENDER_SIZE, ICON_RENDER_SIZE)
     mode = "RGBA" if pixbuf.get_has_alpha() else "RGB"
     return Image.frombuffer(
         mode,

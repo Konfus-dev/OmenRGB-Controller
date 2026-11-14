@@ -417,8 +417,9 @@ function buildAutoPage(settings, window) {
 
     const group = new Adw.PreferencesGroup({
         title: 'Auto mode',
-        description: 'Match the PC to the app you are using. Your normal settings ' +
-            'come back for apps without a recognisable icon, and while this window has focus.',
+        description: 'Match the PC to the app you are using. With nothing in focus, ' +
+            'or an app without an icon, it shows the system\u2019s logo and colour. ' +
+            'Your normal settings show while this window has focus.',
     });
     page.add(group);
 
@@ -445,7 +446,7 @@ function buildAutoPage(settings, window) {
         enabledRow.bind_property('active', row, 'sensitive', GObject.BindingFlags.SYNC_CREATE);
 
     // What auto mode last picked up, as reported by the service.
-    const nowRow = new Adw.ActionRow({title: 'Last app followed'});
+    const nowRow = new Adw.ActionRow({title: 'Now following'});
     const swatch = new Gtk.ColorDialogButton({
         dialog: new Gtk.ColorDialog({with_alpha: false}),
         valign: Gtk.Align.CENTER,
@@ -457,7 +458,9 @@ function buildAutoPage(settings, window) {
     const refresh = () => {
         const auto = readStatus(settings).auto ?? {};
         nowRow.visible = settings.get_boolean('auto-enabled');
-        nowRow.subtitle = auto.app ? auto.app.replace(/\.desktop$/, '') : 'None yet';
+        nowRow.subtitle = auto.app
+            ? auto.app.replace(/\.desktop$/, '')
+            : auto.colour ? 'Nothing in focus (system look)' : 'Your normal settings';
         swatch.visible = Boolean(auto.colour);
         if (auto.colour)
             swatch.rgba = hexToRgba(auto.colour);
