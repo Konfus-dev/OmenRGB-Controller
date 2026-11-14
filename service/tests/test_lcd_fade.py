@@ -3,7 +3,7 @@ import io
 
 from PIL import Image
 
-from omenrgb.lcd_fade import fade_frames
+from omenrgb.core.lcd_fade import fade_frames
 
 
 def jpeg(colour):

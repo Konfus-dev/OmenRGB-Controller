@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from omenrgb.lights import (
+from omenrgb.core.lights import (
     DeviceInfo,
     EffectOptions,
     Lights,

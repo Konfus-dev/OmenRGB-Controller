@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import pytest
 
-from omenrgb import tracer
-from omenrgb.lights import Colour, Lights
+from omenrgb.backends import tracer
+from omenrgb.core.lights import Colour, Lights
 
 
 def test_direct_report_layout():

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import json
 
-from omenrgb.openrgb_config import restrict_detectors, write_config
+from omenrgb.backends.openrgb import restrict_detectors, write_config
 
 
 def test_only_wanted_detectors_stay_on():

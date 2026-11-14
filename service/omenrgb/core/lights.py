@@ -13,7 +13,6 @@ from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
-
 log = logging.getLogger(__name__)
 
 DEFAULT_MODE = "Static"  # used for a device with no saved effect

@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Finds the cooler LCD and writes raw reports to it.
+"""USB HID devices through the Linux kernel's hidraw interface.
+
+Finds devices and writes raw reports to them: the cooler LCD, and the
+case-light board when OpenRGB is not used.
 
 Uses the kernel's hidraw interface directly, so no extra library is needed.
 """
@@ -7,7 +10,7 @@ Uses the kernel's hidraw interface directly, so no extra library is needed.
 import os
 from pathlib import Path
 
-from .constants import LCD_DESCRIPTOR_PREFIX, LCD_HID_ID
+from ..core.constants import LCD_DESCRIPTOR_PREFIX, LCD_HID_ID
 
 
 def find_hid_node(
@@ -43,6 +46,32 @@ def find_hidraw(
 ) -> Path | None:
     """The node of the cooler LCD's data interface, or None."""
     return find_hid_node(LCD_HID_ID, LCD_DESCRIPTOR_PREFIX, sys_root, dev_root)
+
+
+class HidPort:
+    """An open hidraw node: write(report) and close(). Failures raise OSError."""
+
+    def __init__(self, node: Path):
+        self._fd: int | None = os.open(node, os.O_RDWR)
+
+    def write(self, report: bytes) -> None:
+        if self._fd is None:
+            raise OSError("connection is closed")
+        os.write(self._fd, report)
+
+    def close(self) -> None:
+        if self._fd is not None:
+            try:
+                os.close(self._fd)
+            except OSError:
+                pass
+            self._fd = None
+
+
+def open_lcd() -> "LcdDevice | None":
+    """The cooler LCD, opened, or None if it is not connected."""
+    node = find_hidraw()
+    return LcdDevice(node) if node else None
 
 
 class LcdDevice:

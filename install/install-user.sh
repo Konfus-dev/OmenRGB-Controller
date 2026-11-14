@@ -30,12 +30,12 @@ if [[ -e "$extensions/$uuid" && ! -L "$extensions/$uuid" ]]; then
     echo "ERROR: $extensions/$uuid exists and is not a link made by this script. Remove it first." >&2
     exit 1
 fi
-ln -sfn "$repo/extension/$uuid" "$extensions/$uuid"
-glib-compile-schemas --strict "$repo/extension/$uuid/schemas"
+ln -sfn "$repo/frontends/gnome-shell/$uuid" "$extensions/$uuid"
+glib-compile-schemas --strict "$repo/frontends/gnome-shell/$uuid/schemas"
 
 echo "==> OpenRGB limited to the case-light board"
 orgb="$HOME/.config/omenrgb/openrgb"
-known="$("$venv/bin/python" -m omenrgb.openrgb_config "$orgb" "$HOME/.config/OpenRGB/OpenRGB.json")"
+known="$("$venv/bin/python" -m omenrgb.backends.openrgb "$orgb" "$HOME/.config/OpenRGB/OpenRGB.json")"
 if (( known < 100 )); then
     # OpenRGB only writes down the names of its detectors after one full
     # hardware scan. Do that scan once, then switch the detectors off.
@@ -43,7 +43,7 @@ if (( known < 100 )); then
     echo "    RAM temperature sensors may stop reporting until the next reboot."
     systemctl --user stop openrgb-server.service 2>/dev/null || true
     timeout 120 openrgb --config "$orgb" --noautoconnect --list-devices >/dev/null 2>&1 || true
-    known="$("$venv/bin/python" -m omenrgb.openrgb_config "$orgb")"
+    known="$("$venv/bin/python" -m omenrgb.backends.openrgb "$orgb")"
     if (( known < 100 )); then
         # Starting OpenRGB without that list would let it probe everything,
         # RAM included, at every login. Better to stop here.

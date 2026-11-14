@@ -12,11 +12,10 @@ same device and zone names as OpenRGB, so saved settings work with either.
 Packet layout from OpenRGB's HPOmen30LController (GPL-2.0-or-later).
 """
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .lcd_device import find_hid_node
+from .hidraw import HidPort, find_hid_node
 
 HID_ID = "0003:0000103C:000084FD"  # as it appears in sysfs uevent files
 DEVICE_NAME = "HP Omen 30L"  # OpenRGB's name for this board
@@ -106,24 +105,6 @@ class TracerClient:
         self._port.close()
 
 
-class _HidPort:
-    def __init__(self, node: Path):
-        self._fd: int | None = os.open(node, os.O_RDWR)
-
-    def write(self, report: bytes) -> None:
-        if self._fd is None:
-            raise OSError("case-light board connection is closed")
-        os.write(self._fd, report)
-
-    def close(self) -> None:
-        if self._fd is not None:
-            try:
-                os.close(self._fd)
-            except OSError:
-                pass
-            self._fd = None
-
-
 def open_board(
     sys_root: Path = Path("/sys/class/hidraw"), dev_root: Path = Path("/dev")
 ) -> TracerClient:
@@ -131,4 +112,4 @@ def open_board(
     node = find_hid_node(HID_ID, b"", sys_root, dev_root)
     if node is None:
         raise OSError("case-light board not found")
-    return TracerClient(_HidPort(node), node)
+    return TracerClient(HidPort(node), node)
