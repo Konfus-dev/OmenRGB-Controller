@@ -515,7 +515,7 @@ class Service:
         """
         slept = self._slept()
         if slept - self._slept_seen > SLEPT_JUMP_S:
-            log.info("The computer slept (%.0f s); nobody told us it woke", slept - self._slept_seen)
+            log.info("The computer slept %.0f s unannounced; restoring", slept - self._slept_seen)
             self.on_resume()
         elif self._asleep and self._clock() - self._asleep_since > SLEEP_NEVER_CAME_S:
             log.info("Told the computer was going to sleep, but it never did; lights back on")
