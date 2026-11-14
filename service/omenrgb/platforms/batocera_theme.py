@@ -1,19 +1,66 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Reading the look of Batocera's menu from its active theme.
 
-The picture behind the menu's system list is used as the idle picture, so
-the LCD and lights match whatever theme is chosen.
+What goes on the LCD while no game is running, best first:
+
+1. An animation the theme ships for this purpose: a folder `omen-lights/`
+   in the theme, holding LCD-ready frames (480x480 JPEGs named so that they
+   sort in order) and optionally a file `frame_ms` with the time per frame.
+2. A still picture the theme ships: `omen-lights.png` (or .jpg, .webp).
+3. The picture behind the menu's system list.
+
+So any theme works, and a theme author can decide exactly what is shown.
 """
 
 import logging
 import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
+from ..core.constants import MAX_JPEG_BYTES
+from ..core.look import Animation
+
 log = logging.getLogger(__name__)
 
 ES_SETTINGS = Path("/userdata/system/configs/emulationstation/es_settings.cfg")
 THEME_FOLDERS = (Path("/userdata/themes"), Path("/usr/share/emulationstation/themes"))
 MAX_INCLUDE_DEPTH = 4  # themes split over several files include one another
+
+LCD_NAME = "omen-lights"  # what a theme calls the LCD picture or animation it ships
+STILL_TYPES = (".png", ".jpg", ".jpeg", ".webp")
+DEFAULT_FRAME_MS = 100
+MAX_FRAMES = 600  # a minute at ten frames a second
+
+
+def lcd_animation(theme: Path) -> Animation | None:
+    """The LCD animation a theme ships, or None."""
+    folder = theme / LCD_NAME
+    try:
+        files = sorted(p for p in folder.iterdir() if p.suffix.lower() in (".jpg", ".jpeg"))
+    except OSError:
+        return None
+    frames = []
+    for file in files[:MAX_FRAMES]:
+        try:
+            data = file.read_bytes()
+        except OSError:
+            continue
+        if data.startswith(b"\xff\xd8") and len(data) <= MAX_JPEG_BYTES:
+            frames.append(data)
+    if not frames:
+        return None
+    try:
+        frame_ms = int((folder / "frame_ms").read_text().strip())
+    except (OSError, ValueError):
+        frame_ms = DEFAULT_FRAME_MS
+    return Animation(tuple(frames), frame_ms)
+
+
+def lcd_still(theme: Path) -> Path | None:
+    """The still LCD picture a theme ships, or None."""
+    for suffix in STILL_TYPES:
+        if (theme / f"{LCD_NAME}{suffix}").is_file():
+            return theme / f"{LCD_NAME}{suffix}"
+    return None
 
 
 def active_theme(es_settings: Path = ES_SETTINGS, theme_folders=THEME_FOLDERS) -> Path | None:

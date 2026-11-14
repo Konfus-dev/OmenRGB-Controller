@@ -157,27 +157,41 @@ def test_looks_can_be_told_how_to_lay_pictures_out():
     assert looks.look_for("game").jpeg == b"art" and looks.idle_look().jpeg == b"idle"
 
 
-def test_vivid_makes_a_muted_colour_bright_enough_for_leds():
-    from omenrgb.core.look import vivid
-
-    red, green, blue = (int(vivid("#9141AC")[i : i + 2], 16) for i in (1, 3, 5))
-    assert max(red, green, blue) == 255 and blue > red > green  # still purple, now bright
-    assert vivid("#FF0000") == "#FF0000"
-    assert vivid("nonsense") is None
-
-
-def test_idle_colour_can_come_from_the_platform():
-    looks = Looks(
-        lambda subject: None,
-        load_idle=lambda: icon((255, 0, 0, 255), size=64),
-        idle_colour=lambda: "#00FF00",
-    )
-    assert looks.idle_look().colour == "#00FF00"
-
-
 def test_forget_idle_rebuilds_the_idle_look():
     pictures = [icon((255, 0, 0, 255), size=64), icon((0, 0, 255, 255), size=64)]
     looks = Looks(lambda subject: None, load_idle=lambda: pictures.pop(0))
     assert looks.idle_look().colour == "#FF0000"
     looks.forget_idle()
     assert looks.idle_look().colour == "#0000FF"
+
+
+# --- animated idle pictures ---------------------------------------------------------
+
+
+def lcd_jpeg(colour):
+    buffer = io.BytesIO()
+    Image.new("RGB", (480, 480), colour).save(buffer, "JPEG", quality=90)
+    return buffer.getvalue()
+
+
+def test_an_animation_becomes_an_animated_look():
+    from omenrgb.core.look import Animation
+
+    frames = (lcd_jpeg((0, 200, 0)), lcd_jpeg((0, 255, 0)))
+    looks = Looks(lambda subject: None, load_idle=lambda: Animation(frames, 100))
+    idle = looks.idle_look()
+    assert idle.frames == frames and idle.frame_ms == 100
+    assert idle.jpeg == frames[0]  # what is shown first, and faded to
+    red, green, blue = (int(idle.colour[i : i + 2], 16) for i in (1, 3, 5))
+    assert green == 255 and red < 80 and blue < 80
+
+
+def test_a_still_look_has_no_frames():
+    looks = Looks(lambda subject: None, load_idle=lambda: icon((255, 0, 0, 255), size=64))
+    assert looks.idle_look().frames == ()
+
+
+def test_an_empty_animation_gives_no_look():
+    from omenrgb.core.look import Animation
+
+    assert Looks(lambda s: None, load_idle=lambda: Animation((), 100)).idle_look() is None

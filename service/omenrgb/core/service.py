@@ -96,6 +96,8 @@ class Service:
         self._fade_iter: Iterator[bytes] | None = None  # frames of a running fade
         self._fade_timer = None
         self._asleep = False  # between "going to sleep" and "woke up"
+        self._animation_index = 0  # which frame of an animated LCD picture is showing
+        self._lcd_animation_timer = None
         self._lights_timer = None  # timer handle while a lights update is waiting
         self._animation_timer = None  # timer handle while an effect is being animated
         self._stop_watching = None  # stops watching the chosen LCD image file
@@ -129,11 +131,18 @@ class Service:
         ]
 
     def stop(self) -> None:
-        for timer in (*self._timers, self._lights_timer, self._animation_timer, self._fade_timer):
+        for timer in (
+            *self._timers,
+            self._lights_timer,
+            self._animation_timer,
+            self._fade_timer,
+            self._lcd_animation_timer,
+        ):
             if timer is not None:
                 self._scheduler.cancel(timer)
         self._timers = []
         self._lights_timer = self._animation_timer = self._fade_timer = None
+        self._lcd_animation_timer = None
         self._watch_image_file(None)
         if self._started:
             self._started = False
@@ -241,6 +250,7 @@ class Service:
         log.info("Going to sleep; switching LCD and lights off")
         self._asleep = True
         self.finish_lcd_fade()
+        self._sync_lcd_animation()
         self._update_lcd_brightness()
         self._streamer.tick_claim()  # sends the new brightness now
         self.flush_lights()
@@ -253,6 +263,7 @@ class Service:
         hardware may have forgotten its settings, so send them all again."""
         log.info("Woke from sleep; restoring LCD and lights")
         self._asleep = False
+        self._sync_lcd_animation()
         self._update_lcd_brightness()
         self._streamer.tick_claim()
         self._lights.forget()
@@ -292,7 +303,9 @@ class Service:
             self._shown_jpeg = picture
             self._streamer.set_image(picture)
             self._streamer.tick_frame()  # now, not at the next half-second tick
+            self._sync_lcd_animation()
             return
+        self._sync_lcd_animation()  # a moving picture stops while we fade away from it
         # Crossfade from whatever is on screen at this moment.
         self._fade_iter = self._fade(self._shown_jpeg, picture, LCD_FADE_STEPS)
         self.tick_lcd_fade()
@@ -326,9 +339,50 @@ class Service:
                 # (None lets the LCD go back to its own logo).
                 self._shown_jpeg = self._target_jpeg
                 self._streamer.set_image(self._target_jpeg)
+            self._sync_lcd_animation()  # the new picture may be a moving one
             return
         self._shown_jpeg = frame
         self._streamer.set_image(frame)
+        self._streamer.tick_frame()
+
+    # --- moving LCD pictures -------------------------------------------------------
+
+    @property
+    def lcd_animating(self) -> bool:
+        return self._lcd_animation_timer is not None
+
+    def _animation_wanted(self) -> bool:
+        """True while auto mode's picture is a moving one and is on the LCD."""
+        look = self._look
+        return bool(
+            look
+            and look.frames
+            and not self._asleep
+            and self._fade_iter is None
+            and self._auto_lcd() is not None
+            and self._target_jpeg == look.jpeg
+        )
+
+    def _sync_lcd_animation(self) -> None:
+        """Start or stop playing a moving picture, as the situation requires."""
+        wanted = self._animation_wanted()
+        if wanted and self._lcd_animation_timer is None:
+            self._animation_index = 0
+            self._lcd_animation_timer = self._scheduler.every(
+                self._look.frame_ms, lambda: self._repeat(self.tick_lcd_animation)
+            )
+        elif not wanted and self._lcd_animation_timer is not None:
+            self._scheduler.cancel(self._lcd_animation_timer)
+            self._lcd_animation_timer = None
+
+    def tick_lcd_animation(self) -> None:
+        """Show the next frame of a moving picture."""
+        if self._lcd_animation_timer is None or not self._animation_wanted():
+            return
+        frames = self._look.frames
+        self._animation_index = (self._animation_index + 1) % len(frames)
+        self._shown_jpeg = frames[self._animation_index]
+        self._streamer.set_image(self._shown_jpeg)
         self._streamer.tick_frame()
 
     def finish_lcd_fade(self) -> None:

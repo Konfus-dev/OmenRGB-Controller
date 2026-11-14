@@ -71,12 +71,19 @@ def _game_artwork(roms: Path):
     return load
 
 
-def _idle_picture(logo: Path) -> Path:
-    """What to show in the menus: the active theme's background, so the PC
-    matches the theme; the Batocera logo if the theme has none we can use."""
-    background = batocera_theme.theme_background()
-    log.info("Menu look taken from %s", background or f"{logo} (no theme background found)")
-    return background or logo
+def _idle_picture(logo: Path):
+    """What to show in the menus, so the PC matches the menu theme: the
+    theme's own LCD animation or picture if it ships one, else the picture
+    behind its system list, else the Batocera logo."""
+    theme = batocera_theme.active_theme()
+    if theme:
+        animation = batocera_theme.lcd_animation(theme)
+        if animation:
+            log.info("Menu look: %d-frame animation from theme %s", len(animation.frames), theme)
+            return animation
+    still = (theme and batocera_theme.lcd_still(theme)) or batocera_theme.theme_background()
+    log.info("Menu look taken from %s", still or f"{logo} (nothing usable in the theme)")
+    return _load_picture(still or logo)
 
 
 def _mtime(path: Path) -> float:
@@ -164,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
     settings = JsonSettings(args.settings, DEFAULTS)
     looks = Looks(
         _game_artwork(args.roms),
-        load_idle=lambda: _load_picture(_idle_picture(args.logo)),
+        load_idle=lambda: _idle_picture(args.logo),
         compose_idle=cover_lcd,  # menu backgrounds and the logo both suit a full screen
     )
     service = Service(

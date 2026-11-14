@@ -7,8 +7,8 @@ What this platform chooses:
 - case lights:  an OpenRGB server
 - RAM lights:   the root helper, which asks the BIOS
 - what is in focus: the app the extension reports; its icon comes from the
-                icon theme. With nothing in focus the PC matches the desktop
-                theme: the wallpaper on the LCD, the accent colour on the lights
+                icon theme. With nothing in focus the PC matches the desktop:
+                the wallpaper on the LCD, and its main colour on the lights
 - sleep/wake:   systemd-logind
 """
 
@@ -23,7 +23,7 @@ from ..backends import hidraw, openrgb, ram_bios
 from ..core.lcd_fade import fade_frames
 from ..core.lcd_streamer import LcdStreamer
 from ..core.lights import Lights
-from ..core.look import Looks, cover_lcd, vivid
+from ..core.look import Looks, cover_lcd
 from ..core.ram import RamLights
 from ..core.service import Service
 from . import glib_runtime, gnome_theme, gtk_icons, logind
@@ -78,7 +78,6 @@ def main(argv: list[str] | None = None) -> int:
         ignore=AUTO_IGNORED_APPS,
         load_idle=idle_picture,
         compose_idle=cover_lcd,
-        idle_colour=lambda: vivid(theme.accent_colour() or ""),
     )
     service = Service(
         settings,

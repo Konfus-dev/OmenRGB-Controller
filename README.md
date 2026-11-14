@@ -21,9 +21,9 @@ own risk.
   gets "dimmest" and "brightest" sliders, on the case as well as the RAM.
 - **Auto mode:** optionally match the PC to what you are doing. With an app
   (or, on Batocera, a game) in focus, the LCD shows its icon or artwork and
-  the lights take its main colour. With nothing in focus the PC matches the
-  theme: wallpaper and accent colour on the desktop, the menu theme's
-  background on Batocera.
+  the lights take its main colour. With nothing in focus the PC matches
+  its surroundings: the wallpaper on the desktop, the menu theme on
+  Batocera (which can even ship its own LCD animation).
 - **Smooth and light:** colours glide and the LCD crossfades when something
   changes, everything goes dark when the PC sleeps, and the service does
   almost nothing while the lights are steady.

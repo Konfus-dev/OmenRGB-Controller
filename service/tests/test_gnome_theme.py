@@ -1,14 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-from omenrgb.platforms.gnome_theme import accent_to_hex, pick_wallpaper
-
-
-def test_known_accent_names_become_colours():
-    assert accent_to_hex("purple") == "#9141AC"
-    assert accent_to_hex("orange") == "#ED5B00"
-
-
-def test_unknown_or_missing_accent_gives_none():
-    assert accent_to_hex("chartreuse") is None and accent_to_hex("") is None
+from omenrgb.platforms.gnome_theme import pick_wallpaper
 
 
 def test_wallpaper_follows_the_dark_or_light_setting():

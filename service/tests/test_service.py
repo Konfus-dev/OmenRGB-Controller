@@ -448,6 +448,9 @@ class FakeLooks:
     def is_ignored(self, app_id):
         return app_id == "settings.desktop"
 
+    def forget_idle(self):
+        pass
+
     def idle_look(self, image_path=None):
         from omenrgb.core.look import Look
 
@@ -714,3 +717,51 @@ def test_steady_colours_are_sent_again_every_slow_tick(parts):
     service.tick_slow()
     service.tick_slow()
     assert lights.refreshed == 2
+
+
+# --- animated looks play on the LCD ----------------------------------------------
+
+
+@pytest.fixture
+def animated(auto):
+    from omenrgb.core.look import Look
+
+    service, settings, streamer, lights = auto
+    service._looks.idle = Look("#00FF00", b"f0", (b"f0", b"f1", b"f2"), 100)
+    settings.set_boolean("auto-enabled", True)
+    service.on_changed("auto-enabled")
+    focus(service, settings, "")
+    return service, settings, streamer, lights
+
+
+def test_an_animated_look_plays_frame_after_frame_and_loops(animated):
+    service, _settings, streamer, _lights = animated
+    assert service.lcd_animating is True and streamer.images[-1] == b"f0"
+    for _ in range(4):
+        service.tick_lcd_animation()
+    assert streamer.images[-4:] == [b"f1", b"f2", b"f0", b"f1"]
+
+
+def test_animation_stops_when_something_else_takes_the_lcd(animated):
+    service, settings, streamer, _lights = animated
+    focus(service, settings, "firefox.desktop")
+    assert service.lcd_animating is False and streamer.images[-1] == b"firefox icon jpeg"
+    service.tick_lcd_animation()  # a late tick must not put the animation back
+    assert streamer.images[-1] == b"firefox icon jpeg"
+    focus(service, settings, "")
+    assert service.lcd_animating is True  # and it starts again when idle returns
+
+
+def test_animation_stops_with_auto_mode_or_auto_lcd_off(animated):
+    service, settings, _streamer, _lights = animated
+    settings.set_boolean("auto-lcd", False)
+    service.on_changed("auto-lcd")
+    assert service.lcd_animating is False
+
+
+def test_animation_pauses_while_asleep(animated):
+    service, _settings, streamer, _lights = animated
+    service.on_sleep()
+    assert service.lcd_animating is False
+    service.on_resume()
+    assert service.lcd_animating is True

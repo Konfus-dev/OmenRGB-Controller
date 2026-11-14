@@ -8,6 +8,7 @@ it. Finding the picture is the platform's job.
 """
 
 import colorsys
+import io
 import logging
 import math
 from collections import OrderedDict
@@ -36,8 +37,18 @@ LED_SATURATION = 0.75  # the chosen colour is made at least this vivid
 class Look:
     """How one app should be shown."""
 
-    colour: str | None  # '#RRGGBB' for the lights; None if the icon has no real colour
-    jpeg: bytes  # the app's icon, ready for the LCD
+    colour: str | None  # '#RRGGBB' for the lights; None if the picture has no real colour
+    jpeg: bytes  # the picture, ready for the LCD (an animation's first frame)
+    frames: tuple[bytes, ...] = ()  # every frame of an animated picture, LCD-ready
+    frame_ms: int = 0  # how long each frame is shown
+
+
+@dataclass(frozen=True)
+class Animation:
+    """A moving picture a platform can hand over in place of a still one."""
+
+    frames: tuple[bytes, ...]  # LCD-ready JPEGs (480x480), in order, played in a loop
+    frame_ms: int
 
 
 def dominant_colour(icon: Image.Image) -> str | None:
@@ -79,23 +90,6 @@ def dominant_colour(icon: Image.Image) -> str | None:
     return f"#{red:02X}{green:02X}{blue:02X}"
 
 
-def vivid(colour: str) -> str | None:
-    """'#RRGGBB' with the same hue, made bright and saturated enough to look
-    like itself on LEDs. None if `colour` is not a colour."""
-    text = colour.strip().lstrip("#")
-    try:
-        if len(text) != 6:
-            raise ValueError
-        parts = [int(text[i : i + 2], 16) / 255 for i in (0, 2, 4)]
-    except ValueError:
-        return None
-    hue, saturation, _value = colorsys.rgb_to_hsv(*parts)
-    red, green, blue = (
-        round(255 * part) for part in colorsys.hsv_to_rgb(hue, max(saturation, LED_SATURATION), 1.0)
-    )
-    return f"#{red:02X}{green:02X}{blue:02X}"
-
-
 def icon_on_black(icon: Image.Image) -> bytes:
     """An LCD-ready JPEG of the icon, centred on black."""
     icon = icon.convert("RGBA")
@@ -112,6 +106,19 @@ def cover_lcd(picture: Image.Image) -> bytes:
     return encode_for_lcd(ImageOps.fit(picture.convert("RGB"), (LCD_SIZE, LCD_SIZE)))
 
 
+def _idle_look_from(picture, compose: Callable[[Image.Image], bytes]) -> Look | None:
+    """A Look from whatever a platform supplied as its idle picture."""
+    if picture is None:
+        return None
+    if isinstance(picture, Animation):
+        if not picture.frames:
+            return None
+        with Image.open(io.BytesIO(picture.frames[0])) as first:
+            colour = dominant_colour(first)
+        return Look(colour, picture.frames[0], tuple(picture.frames), max(20, picture.frame_ms))
+    return Look(dominant_colour(picture), compose(picture))
+
+
 class Looks:
     """Works out, and remembers, the Look of each app."""
 
@@ -120,22 +127,18 @@ class Looks:
         load_icon: Callable[[str], Image.Image | None],
         remember: int = 64,
         ignore: Iterable[str] = (),
-        load_idle: Callable[[], Image.Image | None] | None = None,
+        load_idle: Callable[[], "Image.Image | Animation | None"] | None = None,
         compose: Callable[[Image.Image], bytes] = icon_on_black,
         compose_idle: Callable[[Image.Image], bytes] = icon_on_black,
-        idle_colour: Callable[[], str | None] | None = None,
     ):
         """`load_icon(app_id)` returns the app's icon, or None if it has none.
         Apps listed in `ignore` never get a look. `load_idle()` returns the
-        picture for when nothing is in focus (normally the OS logo)."""
+        picture for when nothing is in focus: a still image or an Animation."""
         self._load_icon = load_icon
         self._ignore = frozenset(ignore)
         self._load_idle = load_idle
         self._compose = compose  # lays a subject's picture out for the LCD
         self._compose_idle = compose_idle  # the same for the idle picture
-        # The system's own theme colour, if it has one; otherwise the idle
-        # picture's main colour is used.
-        self._idle_colour = idle_colour
         self._idle: dict[str, Look | None] = {}  # idle looks by picture path ('' = OS logo)
         self._remember = remember
         self._known: OrderedDict[str, Look | None] = OrderedDict()
@@ -154,14 +157,7 @@ class Looks:
                         picture = opened.convert("RGBA")
                 else:
                     picture = self._load_idle() if self._load_idle else None
-                look = None
-                if picture:
-                    theme_colour = (
-                        None if image_path or not self._idle_colour else self._idle_colour()
-                    )
-                    look = Look(
-                        theme_colour or dominant_colour(picture), self._compose_idle(picture)
-                    )
+                look = _idle_look_from(picture, self._compose_idle)
             except Exception as error:
                 log.warning("No idle look (%s): %s", image_path or "OS logo", error)
                 look = None

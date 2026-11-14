@@ -5,9 +5,10 @@ OMEN_LIGHTS**.
 
 While it is on:
 
-- **In the menus** the cooler LCD shows the background of your menu theme
-  and the lights take its colour, so the PC matches the theme. (If the theme
-  has no background picture, the Batocera logo is used.) A change of
+- **In the menus** the PC matches your menu theme. The LCD shows, best
+  first: an animation the theme ships for it, a still picture the theme
+  ships for it, or the theme's menu background (the Batocera logo if it has
+  none). The lights take that picture's main colour. A change of
   theme is picked up within a second or two.
 - **While a game runs** the LCD shows that game's artwork (its logo if one
   was scraped, otherwise its box or a screenshot) and the lights take the
@@ -52,3 +53,14 @@ RAM may go back to its own pattern until a new module is built; see
 
 When the PC sleeps, the LCD and lights are switched off, and they come back
 when it wakes.
+
+## For theme authors: what the LCD shows
+
+Put either of these in your theme's folder and it is used in the menus:
+
+- `omen-lights/`: an animation. LCD-ready frames (480x480 JPEG, at most
+  60,000 bytes each, named so they sort in order, such as `000.jpg`,
+  `001.jpg`, ...) played in a loop, and optionally a text file `frame_ms`
+  holding the time per frame in milliseconds (default 100). The screen is
+  round, so keep what matters inside the circle.
+- `omen-lights.png` (or `.jpg`, `.webp`): one still picture.

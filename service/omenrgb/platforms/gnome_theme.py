@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Reading the look of a GNOME desktop: its wallpaper and accent colour.
+"""Reading the look of a GNOME desktop: its wallpaper.
 
 Used as the idle look, so that with nothing in focus the PC matches the
-desktop's theme.
+desktop: the wallpaper on the LCD, and its main colour on the lights (picked
+the same way as for an app's icon).
 """
 
 from collections.abc import Callable
@@ -10,25 +11,8 @@ from urllib.parse import unquote, urlparse
 
 from gi.repository import Gio
 
-# GNOME's named accent colours (as drawn by libadwaita).
-ACCENT_COLOURS = {
-    "blue": "#3584E4",
-    "teal": "#2190A4",
-    "green": "#3A944A",
-    "yellow": "#C88800",
-    "orange": "#ED5B00",
-    "red": "#E62D42",
-    "pink": "#D56199",
-    "purple": "#9141AC",
-    "slate": "#6F8396",
-}
-
 INTERFACE = "org.gnome.desktop.interface"
 BACKGROUND = "org.gnome.desktop.background"
-
-
-def accent_to_hex(name: str) -> str | None:
-    return ACCENT_COLOURS.get(name)
 
 
 def pick_wallpaper(colour_scheme: str, uri: str, uri_dark: str) -> str | None:
@@ -42,16 +26,11 @@ def pick_wallpaper(colour_scheme: str, uri: str, uri_dark: str) -> str | None:
 
 
 class DesktopTheme:
-    """The current wallpaper and accent colour, and a way to hear changes."""
+    """The current wallpaper, and a way to hear when it changes."""
 
     def __init__(self):
         self._interface = Gio.Settings.new(INTERFACE)
         self._background = Gio.Settings.new(BACKGROUND)
-
-    def accent_colour(self) -> str | None:
-        if "accent-color" not in self._interface.props.settings_schema.list_keys():
-            return None  # older GNOME has no accent colour
-        return accent_to_hex(self._interface.get_string("accent-color"))
 
     def wallpaper(self) -> str | None:
         return pick_wallpaper(
@@ -61,8 +40,7 @@ class DesktopTheme:
         )
 
     def on_change(self, callback: Callable[[], None]) -> None:
-        """Call `callback` when the wallpaper, accent or dark/light choice changes."""
-        for key in ("accent-color", "color-scheme"):
-            self._interface.connect(f"changed::{key}", lambda *_: callback())
+        """Call `callback` when the wallpaper or the dark/light choice changes."""
+        self._interface.connect("changed::color-scheme", lambda *_: callback())
         for key in ("picture-uri", "picture-uri-dark"):
             self._background.connect(f"changed::{key}", lambda *_: callback())

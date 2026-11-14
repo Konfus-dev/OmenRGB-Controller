@@ -89,3 +89,51 @@ def test_backgrounds_that_depend_on_theme_variables_are_skipped(tmp_path):
     )
     settings, themes = make(tmp_path, xml)
     assert theme_background(settings, themes).name == "bg_list.jpg"
+
+
+# --- a theme can ship its own picture or animation for the LCD ----------------------
+
+JPEG = b"\xff\xd8" + b"x" * 100
+
+
+def test_lcd_animation_from_a_folder_of_frames(tmp_path):
+    from omenrgb.platforms.batocera_theme import lcd_animation
+
+    frames = tmp_path / "omen-lights"
+    frames.mkdir()
+    for name in ("002.jpg", "000.jpg", "001.jpg"):
+        (frames / name).write_bytes(JPEG + name.encode())
+    (frames / "frame_ms").write_text("80\n")
+    animation = lcd_animation(tmp_path)
+    assert [f[-7:] for f in animation.frames] == [b"000.jpg", b"001.jpg", b"002.jpg"]  # in order
+    assert animation.frame_ms == 80
+
+
+def test_lcd_animation_defaults_and_skips_unusable_frames(tmp_path):
+    from omenrgb.platforms.batocera_theme import lcd_animation
+
+    frames = tmp_path / "omen-lights"
+    frames.mkdir()
+    (frames / "000.jpg").write_bytes(JPEG)
+    (frames / "001.jpg").write_bytes(b"not a jpeg")
+    (frames / "002.jpg").write_bytes(b"\xff\xd8" + bytes(70000))  # too big for the LCD
+    (frames / "notes.txt").write_text("hello")
+    (frames / "frame_ms").write_text("fast")
+    animation = lcd_animation(tmp_path)
+    assert animation.frames == (JPEG,) and animation.frame_ms == 100
+
+
+def test_no_lcd_animation_without_frames(tmp_path):
+    from omenrgb.platforms.batocera_theme import lcd_animation
+
+    assert lcd_animation(tmp_path) is None
+    (tmp_path / "omen-lights").mkdir()
+    assert lcd_animation(tmp_path) is None
+
+
+def test_lcd_still_picture_shipped_by_a_theme(tmp_path):
+    from omenrgb.platforms.batocera_theme import lcd_still
+
+    assert lcd_still(tmp_path) is None
+    (tmp_path / "omen-lights.png").write_bytes(b"png")
+    assert lcd_still(tmp_path) == tmp_path / "omen-lights.png"
