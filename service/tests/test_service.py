@@ -57,6 +57,9 @@ class FakeLights:
     def finish_transitions(self):
         self.finished = True
 
+    def refresh(self):
+        self.refreshed = getattr(self, "refreshed", 0) + 1
+
     def wait_idle(self, timeout_s):
         self.waited = True
         return True
@@ -702,3 +705,12 @@ def test_the_owner_can_choose_the_idle_picture_and_colour(auto_idle):
     focus(service, settings, "")
     assert streamer.images[-1] == b"jpeg of /pics/xbox.png"
     assert lights.applied[-1][3].get("Case/Logo") == "#00AA00"
+
+
+def test_steady_colours_are_sent_again_every_slow_tick(parts):
+    # Some boards reset themselves after start-up; this brings the colours back.
+    service, _settings, _streamer, lights, _prepare = parts
+    service.start()
+    service.tick_slow()
+    service.tick_slow()
+    assert lights.refreshed == 2

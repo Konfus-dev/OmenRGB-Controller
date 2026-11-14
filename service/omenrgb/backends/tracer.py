@@ -12,10 +12,13 @@ same device and zone names as OpenRGB, so saved settings work with either.
 Packet layout from OpenRGB's HPOmen30LController (GPL-2.0-or-later).
 """
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .hidraw import HidPort, find_hid_node
+
+log = logging.getLogger(__name__)
 
 HID_ID = "0003:0000103C:000084FD"  # as it appears in sysfs uevent files
 DEVICE_NAME = "HP Omen 30L"  # OpenRGB's name for this board
@@ -87,6 +90,7 @@ class _Device:
         """Show one colour per zone, in zone order."""
         for zone, colour in zip(self.zones, colours, strict=True):
             self._port.write(direct_report(zone.number, colour.red, colour.green, colour.blue))
+        log.debug("Case lights: sent %s", [tuple(colour) for colour in colours])
 
 
 class TracerClient:
@@ -112,4 +116,5 @@ def open_board(
     node = find_hid_node(HID_ID, b"", sys_root, dev_root)
     if node is None:
         raise OSError("case-light board not found")
+    log.info("Case-light board found at %s", node)
     return TracerClient(HidPort(node), node)

@@ -9,6 +9,7 @@ ordinary user's service goes through the small root helper
 """
 
 import socket
+import subprocess
 from pathlib import Path
 
 from ..core.ram import Command
@@ -58,17 +59,51 @@ def send_to_helper(batch: list[Command], path: str = HELPER_SOCKET) -> None:
                     raise OSError(f"RAM helper refused '{line}': {reply or 'no answer'}")
 
 
-def direct_sender(helper):
+def sticks_from_dmidecode(text: str) -> list[int]:
+    """Stick addresses from the output of `dmidecode -t 17`.
+
+    The Nth "Memory Device" block is slot N; a slot with a size is fitted.
+    """
+    sticks = []
+    slot = -1
+    for line in text.splitlines():
+        line = line.strip()
+        if line == "Memory Device":
+            slot += 1
+        elif line.startswith("Size:") and "No Module Installed" not in line and 0 <= slot < 4:
+            sticks.append(0xC0 + 2 * slot)
+    return sticks
+
+
+def find_sticks_dmi(command: tuple[str, ...] | list[str] = ("dmidecode", "-t", "17")) -> list[int]:
+    """Fitted sticks according to the BIOS's own tables (needs root).
+
+    For systems whose kernel does not list the sticks (Batocera has no
+    spd5118 driver). Returns [] if the tool is missing or fails.
+    """
+    try:
+        result = subprocess.run(list(command), capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return sticks_from_dmidecode(result.stdout)
+
+
+def direct_sender(helper, find):
     """A RAM sender for a service that is itself root (Batocera).
 
     `helper` is the root helper's module (helper/omenrgb_ram_helper.py),
-    loaded by the platform. Its checks are used exactly as in the socket
-    case, so there is still only one place that decides what may be sent.
+    loaded by the platform. Its checks on registers and values are used
+    exactly as in the socket case, so there is still only one place that
+    decides what may be sent. `find()` lists the fitted sticks, standing in
+    for the kernel's list the helper would otherwise consult.
     """
 
     def send(batch: list[Command]) -> None:
+        fitted = set(find())
         for address, register, value in batch:
-            reply = helper.handle_line(f"W {address:02x} {register:02x} {value:02x}")
+            reply = helper.handle_line(
+                f"W {address:02x} {register:02x} {value:02x}", present=fitted.__contains__
+            )
             if reply != "OK":
                 raise OSError(f"RAM write refused: {reply}")
 

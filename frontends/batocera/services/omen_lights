@@ -15,12 +15,13 @@ case "$1" in
     start)
         [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null && exit 0
         mkdir -p "$(dirname "$log")"
+        : >"$log"  # start a fresh log; everything below adds to it
         # The RAM lights need this kernel module; without it they are skipped.
         # (The module only fits the kernel version it was built for.)
         [ -e /proc/acpi/call ] || modprobe acpi_call 2>/dev/null ||
             insmod "$app/modules/$(uname -r)/acpi_call.ko" 2>>"$log" || true
-        PYTHONPATH="$app/service" nohup python3 -m omenrgb --platform batocera \
-            >"$log" 2>&1 &
+        PYTHONPATH="$app/service" nohup python3 -m omenrgb --platform batocera --verbose \
+            >>"$log" 2>&1 &
         echo $! >"$pidfile"
         ;;
     stop)

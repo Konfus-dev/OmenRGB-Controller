@@ -113,16 +113,23 @@ def call_bios(command: str) -> str:
 
 
 def handle_line(
-    line: str, call=call_bios, i2c_devices: Path = I2C_DEVICES, sleep=time.sleep
+    line: str, call=None, i2c_devices: Path = I2C_DEVICES, sleep=None, present=None
 ) -> str:
-    """Process one request line and return the reply line."""
+    """Process one request line and return the reply line.
+
+    `present(address)` says whether a stick is fitted at that address; by
+    default the kernel's list of sticks is consulted.
+    """
+    call = call or call_bios
+    sleep = sleep or time.sleep
     if line.strip().upper() == "PING":
         return "OK"
     try:
         address, register, value = parse_request(line)
     except ValueError as error:
         return f"ERR {error}"
-    if not stick_present(address, i2c_devices):
+    fitted = present(address) if present else stick_present(address, i2c_devices)
+    if not fitted:
         return "ERR no RAM stick in that slot"
     try:
         reply = call(acpi_command(address, register, value))

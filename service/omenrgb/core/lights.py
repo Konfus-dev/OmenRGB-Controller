@@ -287,6 +287,22 @@ class Lights:
             log.warning("Lost connection to the case lights while animating: %s", error)
             self._drop()
 
+    def refresh(self) -> None:
+        """Send the steady colours again.
+
+        A lighting board can reset itself (while the computer is still
+        starting up, or when USB settles) and forget what it was showing.
+        Called every few seconds, this brings the colours back. Devices that
+        are fading or breathing are being sent frames anyway.
+        """
+        try:
+            for glow in self._glows.values():
+                if not glow.active:
+                    _send_frame(glow, 1.0)
+        except Exception as error:
+            log.warning("Lost connection to the case lights: %s", error)
+            self._drop()
+
     def finish_transitions(self) -> None:
         """Jump every running fade to its end (used when there is no time)."""
         try:

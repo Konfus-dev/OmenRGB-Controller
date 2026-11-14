@@ -338,3 +338,67 @@ def test_background_failure_is_noticed_by_check():
     ram.apply(True, 100, {}, {})
     assert ram.wait_idle(5) is True
     assert ram.check() is False and ram.connected is False
+
+
+# --- finding the sticks from DMI, where the kernel does not list them ------------
+
+DMIDECODE = """# dmidecode 3.6
+Handle 0x0010, DMI type 17, 92 bytes
+Memory Device
+\tSize: No Module Installed
+\tLocator: DIMM 1
+
+Handle 0x0011, DMI type 17, 92 bytes
+Memory Device
+\tSize: 16 GB
+\tLocator: DIMM 2
+
+Handle 0x0012, DMI type 17, 92 bytes
+Memory Device
+\tSize: No Module Installed
+\tLocator: DIMM 3
+
+Handle 0x0013, DMI type 17, 92 bytes
+Memory Device
+\tSize: 16 GB
+\tLocator: DIMM 4
+"""
+
+
+def test_sticks_from_dmidecode_output():
+    from omenrgb.backends.ram_bios import sticks_from_dmidecode
+
+    assert sticks_from_dmidecode(DMIDECODE) == [LEFT, RIGHT]  # slots 1 and 3
+    assert sticks_from_dmidecode("") == []
+    assert sticks_from_dmidecode("Memory Device\n\tSize: 16 GB\n" * 6) == [0xC0, 0xC2, 0xC4, 0xC6]
+
+
+def test_find_sticks_dmi_survives_a_missing_tool():
+    from omenrgb.backends.ram_bios import find_sticks_dmi
+
+    assert find_sticks_dmi(command=["/no/such/dmidecode"]) == []
+
+
+def test_direct_sender_trusts_the_platforms_list_of_sticks(tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    from omenrgb.backends.ram_bios import direct_sender
+
+    path = Path(__file__).resolve().parents[2] / "helper" / "omenrgb_ram_helper.py"
+    spec = importlib.util.spec_from_file_location("helper", path)
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    sent = []
+    helper.call_bios = lambda command: sent.append(command) or helper.REPLY_OK + "}"
+    helper.time.sleep = lambda seconds: None
+    send = direct_sender(helper, lambda: [LEFT])
+    send([(LEFT, 0x20, 50)])
+    assert len(sent) == 1
+    import pytest
+
+    with pytest.raises(OSError):
+        send([(RIGHT, 0x20, 50)])  # not a fitted stick: refused before reaching the BIOS
+    with pytest.raises(OSError):
+        send([(LEFT, 0x00, 0)])  # the helper's own checks still apply
+    assert len(sent) == 1

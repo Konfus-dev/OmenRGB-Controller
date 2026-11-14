@@ -64,6 +64,12 @@ def _game_artwork(roms: Path):
     return load
 
 
+def _find_sticks() -> list[int]:
+    """The fitted RAM sticks. Batocera's kernel does not list them, so the
+    BIOS's tables are asked; the kernel's list is still tried first."""
+    return ram_bios.find_sticks() or ram_bios.find_sticks_dmi()
+
+
 def _ram_lights() -> RamLights | None:
     """RAM lights if the BIOS can be reached from here, else None."""
     if not (ACPI_CALL.exists() and RAM_HELPER.exists()):
@@ -73,8 +79,8 @@ def _ram_lights() -> RamLights | None:
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)
     return RamLights(
-        ram_bios.direct_sender(helper),
-        ram_bios.find_sticks,
+        ram_bios.direct_sender(helper, _find_sticks),
+        _find_sticks,
         gamma=omen45l.LED_GAMMA,
         background=True,
     )

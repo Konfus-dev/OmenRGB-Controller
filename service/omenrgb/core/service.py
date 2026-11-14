@@ -187,6 +187,12 @@ class Service:
         if self._looks.is_ignored(subject):
             return
         self._look = self._looks.look_for(subject) or self._idle_look()
+        log.debug(
+            "Auto mode: in focus %r -> colour %s, %s picture",
+            subject,
+            self._look.colour if self._look else None,
+            "a" if self._look else "no",
+        )
 
     def _idle_look(self) -> Look | None:
         idle = self._looks.idle_look(self._settings.get("auto-idle-image"))
@@ -427,6 +433,8 @@ class Service:
         self._streamer.tick_reconnect()
         if not self._lights.check() and self._lights.try_connect():
             self._update_lights()
+        else:
+            self._lights.refresh()  # in case the board forgot its colours
         if self._ram and not self._ram.check() and self._ram.try_connect():
             self._update_ram()
         self._sync_animation_timer()  # the connection may have come or gone

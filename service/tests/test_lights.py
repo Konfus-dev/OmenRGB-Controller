@@ -521,3 +521,28 @@ def test_breathing_colour_change_also_fades():
     lights.tick_animation(20.0)
     lights.tick_animation(20.2)
     assert near(device.zones[0].colour, (128, 0, 128))
+
+
+# --- keep-alive: a board that resets itself gets its colours back ---------------
+
+
+def test_refresh_sends_the_current_colours_again():
+    lights, device = static({"Case/Logo": "#FF0000"})
+    sent = len(device.frames)
+    lights.refresh()
+    assert len(device.frames) == sent + 1 and device.frames[-1] == device.frames[-2]
+
+
+def test_refresh_leaves_running_animations_alone():
+    lights, device = breathing()
+    lights.refresh()
+    assert device.frames == []  # the animation is already sending frames
+
+
+def test_refresh_without_anything_to_show_or_after_a_failure():
+    lights = Lights(lambda: SimpleNamespace(devices=[]))
+    lights.refresh()  # not connected: nothing happens
+    lights, device = static({})
+    device.fail = True
+    lights.refresh()  # must not raise
+    assert lights.connected is False
