@@ -246,3 +246,28 @@ the one list of keys; the GSettings schema test keeps checking it.
 - The GNOME window's exact rows and wording, following today's style.
 - How the installers detect and migrate the old install.
 - Commit order. Work on `dev`; `main` only once both systems are tested.
+
+## Open questions (builder check, 2026-11-15; to settle with the owner on resume)
+
+1. **EmuBox menu: built from status, or a fixed device list?** On Batocera
+   `status` is memory-only (`json_store.VOLATILE`), and ES reads
+   `es_features_emubox.cfg` only at start. Likely answer: fixed list
+   (OMEN-PC + IQUNIX-KEYBOARD, "Not connected" when absent).
+2. **Default with a hub-drawn effect (Breathing, keyboard colours)**: what
+   does each device keep after the hub exits: its own native effect,
+   Static, or is Breathing not allowed in the Default?
+3. **"Show Default now"**: is it a temporary preview or does it copy the
+   Default into the current settings? Does every start show the Default
+   first, or does the LCD just show the OMEN logo until the hub runs?
+4. **MacWinBuntu**: `steps/hardware.sh`, `capture.sh`,
+   `lib/dconf_filter.py`, `settings/dconf-omenrgb.ini`, `settings/dconf.ini`
+   use the old names, repo and dconf path. Should the rename include it?
+   (Memory says desktop customizations belong there, so probably yes.)
+5. **Keyboard writes and its memory**: test before any animation that
+   `id_custom_set_value` does not save on this firmware (write, unplug,
+   check that the old look comes back). If it does save, the keyboard only
+   gets its own effects, with no hub-drawn fades.
+6. **EmuBox before the push**: `component.json` fetches
+   `github.com/Konfus-dev/OmenRGB-Controller` (sibling
+   `OmenRGB-Controller`). Is a local checkout only, until the owner pushes,
+   acceptable? What is the new GitHub repo name?
