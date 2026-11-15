@@ -89,6 +89,8 @@ def main(argv: list[str] | None = None) -> int:
     looks = Looks(
         gtk_icons.load_app_icon,
         ignore=AUTO_IGNORED_APPS,
+        # another icon theme: other icons, other colours
+        version=lambda _app: gtk_icons.icon_theme_name(),
         load_idle=idle_picture,
         compose_idle=cover_lcd,
     )

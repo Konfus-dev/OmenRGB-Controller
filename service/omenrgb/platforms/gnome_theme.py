@@ -40,7 +40,8 @@ class DesktopTheme:
         )
 
     def on_change(self, callback: Callable[[], None]) -> None:
-        """Call `callback` when the wallpaper or the dark/light choice changes."""
-        self._interface.connect("changed::color-scheme", lambda *_: callback())
+        """Call `callback` when the wallpaper, the dark/light choice or the icon theme changes."""
+        for key in ("color-scheme", "icon-theme"):
+            self._interface.connect(f"changed::{key}", lambda *_: callback())
         for key in ("picture-uri", "picture-uri-dark"):
             self._background.connect(f"changed::{key}", lambda *_: callback())

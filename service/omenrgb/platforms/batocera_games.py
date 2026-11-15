@@ -18,6 +18,16 @@ ROMS = Path("/userdata/roms")
 ARTWORK_TAGS = ("marquee", "thumbnail", "image")
 
 
+def artwork_version(rom: str, roms: Path = ROMS) -> float | None:
+    """Changes when the game's artwork may have: when its system's list of games was
+    last written (scraping new pictures writes it). Cheap enough to ask every time."""
+    try:
+        system = roms / Path(rom).relative_to(roms).parts[0]
+        return (system / "gamelist.xml").stat().st_mtime
+    except (ValueError, IndexError, OSError):
+        return None
+
+
 def find_artwork(rom: str, roms: Path = ROMS) -> Path | None:
     """The artwork file for the game at `rom`, or None if there is none."""
     try:

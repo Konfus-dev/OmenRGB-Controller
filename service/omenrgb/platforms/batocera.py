@@ -172,6 +172,8 @@ def main(argv: list[str] | None = None) -> int:
     settings = JsonSettings(args.settings, DEFAULTS)
     looks = Looks(
         _game_artwork(args.roms),
+        # scraped anew: other artwork
+        version=lambda rom: batocera_games.artwork_version(rom, args.roms),
         load_idle=lambda: _idle_picture(args.logo),
         compose_idle=cover_lcd,  # menu backgrounds and the logo both suit a full screen
     )

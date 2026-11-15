@@ -130,10 +130,14 @@ class Looks:
         load_idle: Callable[[], "Image.Image | Animation | None"] | None = None,
         compose: Callable[[Image.Image], bytes] = icon_on_black,
         compose_idle: Callable[[Image.Image], bytes] = icon_on_black,
+        version: Callable[[str], object] | None = None,
     ):
         """`load_icon(app_id)` returns the app's icon, or None if it has none.
         Apps listed in `ignore` never get a look. `load_idle()` returns the
-        picture for when nothing is in focus: a still image or an Animation."""
+        picture for when nothing is in focus: a still image or an Animation.
+        `version(app_id)` is cheap to ask and changes when the app's icon would
+        (another icon theme, new artwork for a game): a remembered look is then
+        worked out again instead of being shown for as long as the service runs."""
         self._load_icon = load_icon
         self._ignore = frozenset(ignore)
         self._load_idle = load_idle
@@ -141,7 +145,8 @@ class Looks:
         self._compose_idle = compose_idle  # the same for the idle picture
         self._idle: dict[str, Look | None] = {}  # idle looks by picture path ('' = OS logo)
         self._remember = remember
-        self._known: OrderedDict[str, Look | None] = OrderedDict()
+        self._version = version
+        self._known: OrderedDict[str, tuple[object, Look | None]] = OrderedDict()
 
     def is_ignored(self, app_id: str) -> bool:
         """True for apps during which the owner's normal settings stay on."""
@@ -172,16 +177,22 @@ class Looks:
         """The Look for an app id such as 'firefox.desktop'; None if unknown."""
         if not app_id or app_id in self._ignore:
             return None
-        if app_id in self._known:
+        try:
+            version = self._version(app_id) if self._version else None
+        except Exception as error:
+            log.warning("Cannot tell whether the look of %s is current: %s", app_id, error)
+            version = None
+        if app_id in self._known and self._known[app_id][0] == version:
             self._known.move_to_end(app_id)
-            return self._known[app_id]
+            return self._known[app_id][1]
         try:
             icon = self._load_icon(app_id)
             look = Look(dominant_colour(icon), self._compose(icon)) if icon else None
         except Exception as error:  # icon themes and image files can fail in many ways
             log.warning("No look for %s: %s", app_id, error)
             look = None
-        self._known[app_id] = look
+        self._known[app_id] = (version, look)
+        self._known.move_to_end(app_id)
         while len(self._known) > self._remember:
             self._known.popitem(last=False)
         return look

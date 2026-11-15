@@ -195,3 +195,31 @@ def test_an_empty_animation_gives_no_look():
     from omenrgb.core.look import Animation
 
     assert Looks(lambda s: None, load_idle=lambda: Animation((), 100)).idle_look() is None
+
+
+def test_a_remembered_look_is_made_again_when_its_source_changes():
+    """Another icon theme (or new artwork for a game) means other icons and colours: a
+    look made before the change must not be shown for as long as the service runs."""
+    theme = ["purple"]
+    colours = {"purple": (120, 60, 255, 255), "green": (60, 255, 150, 255)}
+    calls = []
+
+    def load(app_id):
+        calls.append(app_id)
+        return icon(colours[theme[0]], size=64)
+
+    looks = Looks(load, version=lambda app_id: theme[0])
+    first = looks.look_for("terminal.desktop")
+    assert looks.look_for("terminal.desktop") is first and len(calls) == 1  # remembered
+    theme[0] = "green"
+    second = looks.look_for("terminal.desktop")
+    assert len(calls) == 2 and second.colour != first.colour
+    assert looks.look_for("terminal.desktop") is second and len(calls) == 2
+
+
+def test_a_version_that_cannot_be_asked_does_not_stop_the_look():
+    def version(app_id):
+        raise OSError("settings not there")
+
+    looks = Looks(lambda app_id: icon((255, 0, 0, 255), size=64), version=version)
+    assert looks.look_for("x.desktop")
