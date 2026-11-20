@@ -50,10 +50,10 @@ def load_lcd_folder(
     if not pictures:
         return None
     try:
-        picture = Image.open(pictures[0])
-        if getattr(picture, "n_frames", 1) > 1:
-            return _from_animated_file(picture, compose)
-        return picture.convert("RGBA")
+        with Image.open(pictures[0]) as picture:  # closes the file when done
+            if getattr(picture, "n_frames", 1) > 1:
+                return _from_animated_file(picture, compose)
+            return picture.convert("RGBA")
     except Exception as error:  # Pillow raises many kinds
         log.warning("Cannot use %s: %s", pictures[0], error)
         return None
