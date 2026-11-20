@@ -58,9 +58,20 @@ if [[ $apt == yes ]]; then
     apt-get install -y openrgb || warn "could not install openrgb; case lights will be unavailable"
 fi
 
-echo "==> Loading i2c-dev now and at every boot (OpenRGB expects it)"
+echo "==> Loading i2c-dev now and at every boot (OpenRGB expects it; monitor brightness over DDC uses it)"
 printf 'i2c-dev\n' > /etc/modules-load.d/i2c-dev.conf
 modprobe i2c-dev || warn "could not load i2c-dev"
+
+echo "==> Locking the RAM's bus (SMBus) to root only (71-rgbhub-ram-bus-lock.rules explains why)"
+install -m 0644 "$here/71-rgbhub-ram-bus-lock.rules" /etc/udev/rules.d/71-rgbhub-ram-bus-lock.rules
+udevadm control --reload
+udevadm trigger --subsystem-match=i2c-dev --action=change
+# Access given before the rule existed is taken back too.
+for bus in /sys/class/i2c-dev/*; do
+    case "$(cat "$bus/name" 2>/dev/null)" in
+        SMBus*) setfacl -b "/dev/$(basename "$bus")" 2>/dev/null || true ;;
+    esac
+done
 
 # --- RAM lights (optional: a problem here must not block the rest) ------------
 

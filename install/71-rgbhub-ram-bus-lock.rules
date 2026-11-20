@@ -1,0 +1,12 @@
+# RGB-Hub: the RAM's bus (the chipset's SMBus) is for root only.
+#
+# Any direct read or write to the RAM light controllers on it jams the bus until a reboot, and a
+# write to the wrong address there can damage a stick's settings chip (SPD) for good. RGB-Hub
+# never uses it (the RAM lights go through the BIOS), but OpenRGB's own udev rule gives the
+# logged-in user every I2C bus, so a full OpenRGB scan or any other program could reach it.
+# This takes the SMBus back to root only. The graphics card's buses stay open, so monitor
+# brightness over DDC/CI (autodim, the brightness slider) keeps working.
+#
+# Numbered after 60-openrgb.rules / 60-ddcutil-i2c.rules (which add the "uaccess" tag) and
+# before 73-seat-late.rules (which turns that tag into access for the logged-in user).
+SUBSYSTEM=="i2c-dev", ATTR{name}=="SMBus*", TAG-="uaccess", OWNER="root", GROUP="root", MODE="0600"

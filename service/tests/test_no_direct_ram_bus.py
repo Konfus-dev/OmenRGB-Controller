@@ -48,6 +48,9 @@ ALLOWED = {
     # Loads the i2c-dev module at boot because OpenRGB expects it. Loading
     # the module sends nothing; OpenRGB's RAM detectors are switched off.
     "install/setup.sh": "loads the i2c-dev module for OpenRGB",
+    # The udev rule that locks the RAM's SMBus to root (matches the i2c-dev
+    # subsystem by name; sends nothing).
+    "install/71-rgbhub-ram-bus-lock.rules": "locks the SMBus device node to root",
 }
 I2C_MENTION = re.compile(r"i2c", re.IGNORECASE)
 
@@ -126,6 +129,9 @@ def test_setup_only_loads_the_module():
     assert lines == [
         "printf 'i2c-dev\\n' > /etc/modules-load.d/i2c-dev.conf",
         'modprobe i2c-dev || warn "could not load i2c-dev"',
+        # the lock: the rule file installed, udev told, earlier access taken back
+        "udevadm trigger --subsystem-match=i2c-dev --action=change",
+        "for bus in /sys/class/i2c-dev/*; do",
     ]
 
 
@@ -154,3 +160,29 @@ def test_python_starts_only_the_listed_programs():
         "".join(dict(FILES)[name] for name in ALLOWED_PROGRAMS),
     )
     assert len(commands) == 3
+
+
+# --- the RAM's bus is root-only on the PC (install/71-rgbhub-ram-bus-lock.rules) ---------------
+
+_LOCK = Path(__file__).resolve().parents[2] / "install" / "71-rgbhub-ram-bus-lock.rules"
+
+
+def test_the_ram_bus_is_locked_to_root_by_udev():
+    text = _LOCK.read_text().splitlines()
+    rules = [line for line in text if line.strip() and not line.startswith("#")]
+    assert len(rules) == 1
+    rule = rules[0]
+    assert (
+        'SUBSYSTEM=="i2c-dev"' in rule and 'ATTR{name}=="SMBus*"' in rule
+    )  # only the chipset's SMBus
+    assert 'TAG-="uaccess"' in rule  # no access for the logged-in user (OpenRGB's rule adds it)
+    assert 'MODE="0600"' in rule and 'GROUP="root"' in rule
+    # after the rules that add "uaccess" (60-*) and before 73-seat-late.rules turns it into access
+    assert 60 < int(_LOCK.name.split("-")[0]) < 73
+
+
+def test_setup_installs_the_lock_and_takes_back_earlier_access():
+    setup = (_LOCK.parent / "setup.sh").read_text()
+    assert '71-rgbhub-ram-bus-lock.rules" /etc/udev/rules.d/' in setup
+    assert "udevadm trigger --subsystem-match=i2c-dev" in setup
+    assert "setfacl -b" in setup
