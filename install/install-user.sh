@@ -122,15 +122,9 @@ systemctl --user start rgbhub.service
 # Switch the extension on. `gnome-extensions enable` only works once GNOME
 # Shell has loaded the extension (after a log-in), so also put it on the
 # list of enabled extensions directly; GNOME reads that list at log-in.
+# The old OmenRGB id comes off the list, so it is never enabled twice.
 gnome-extensions enable "$uuid" 2>/dev/null || true
-enabled="$(gsettings get org.gnome.shell enabled-extensions)"
-if [[ "$enabled" != *"'$uuid'"* ]]; then
-    if [[ "$enabled" == *"[]"* ]]; then
-        gsettings set org.gnome.shell enabled-extensions "['$uuid']"
-    else
-        gsettings set org.gnome.shell enabled-extensions "${enabled%]}, '$uuid']"
-    fi
-fi
+python3 "$repo/install/enable-gnome-extension.py" "$uuid" --remove omenrgb@konfus-dev.github.io || true
 
 echo
 echo "Done. If this is the first install (or the first since the rename"

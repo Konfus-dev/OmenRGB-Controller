@@ -135,6 +135,7 @@ def test_setup_only_loads_the_module():
 ALLOWED_PROGRAMS = {
     "service/rgbhub/platforms/gnome_migrate.py": "dconf dump: reads old settings",
     "service/rgbhub/backends/ram_bios.py": "dmidecode -t 17: the BIOS's memory table, no bus",
+    "install/enable-gnome-extension.py": "gsettings get/set org.gnome.shell (installer)",
 }
 STARTS_PROGRAM = re.compile(r"\bsubprocess\b|\bos\.(?:system|popen|exec\w*|spawn\w*)\b")
 
@@ -148,7 +149,8 @@ def test_python_starts_only_the_listed_programs():
     }
     assert starting == set(ALLOWED_PROGRAMS)
     commands = re.findall(
-        r'\["dconf", "dump"|\("dmidecode", "-t", "17"\)',
+        r'\["dconf", "dump"|\("dmidecode", "-t", "17"\)'
+        r'|os\.environ\.get\("GSETTINGS", "gsettings"\)',
         "".join(dict(FILES)[name] for name in ALLOWED_PROGRAMS),
     )
-    assert len(commands) == 2
+    assert len(commands) == 3
