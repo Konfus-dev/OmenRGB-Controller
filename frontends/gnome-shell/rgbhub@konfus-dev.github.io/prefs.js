@@ -53,11 +53,22 @@ function deviceStatus(status, id) {
     return (status.devices ?? []).find(device => device.id === id) ?? null;
 }
 
+/** Call `refresh` whenever one of `keys` changes; returns a function that stops it. */
+function watch(settings, keys, refresh) {
+    const ids = keys.map(key => settings.connect(`changed::${key}`, refresh));
+    return () => ids.forEach(id => settings.disconnect(id));
+}
+
+/** Run every function in `list` once, and empty it. */
+function runAll(list) {
+    list.splice(0).forEach(stop => stop());
+}
+
 /** Keep a function in step with some settings until the window closes. */
 function follow(settings, window, keys, refresh) {
-    const ids = keys.map(key => settings.connect(`changed::${key}`, refresh));
+    const stop = watch(settings, keys, refresh);
     window.connect('close-request', () => {
-        ids.forEach(id => settings.disconnect(id));
+        stop();
         return false;
     });
     refresh();
@@ -128,13 +139,15 @@ function sliderRow(settings, key, title) {
 
 /**
  * A row with a 0-100 slider for one device, stored in a "device name ->
- * number" setting (speed, dimmest, brightest).
+ * number" setting (speed, dimmest, brightest). It follows the setting
+ * (after "Load" of the Default, say) until the function it adds to
+ * `cleanups` is called.
  */
-function deviceSliderRow(settings, key, deviceName, title, subtitle, fallback) {
-    const saved = settings.get_value(key).deepUnpack()[deviceName] ?? fallback;
+function deviceSliderRow(settings, key, deviceName, title, subtitle, fallback, cleanups) {
+    const read = () => settings.get_value(key).deepUnpack()[deviceName] ?? fallback;
     const scale = new Gtk.Scale({
         adjustment: new Gtk.Adjustment({
-            lower: 0, upper: 100, step_increment: 1, page_increment: 10, value: saved,
+            lower: 0, upper: 100, step_increment: 1, page_increment: 10, value: read(),
         }),
         draw_value: true,
         digits: 0,
@@ -143,13 +156,23 @@ function deviceSliderRow(settings, key, deviceName, title, subtitle, fallback) {
         width_request: 220,
         valign: Gtk.Align.CENTER,
     });
+    let syncing = false; // true while the slider is being moved to match the setting
     scale.connect('value-changed', () => {
+        if (syncing)
+            return;
         const all = settings.get_value(key).deepUnpack();
         const value = Math.round(scale.get_value());
         if (all[deviceName] === value)
             return;
         settings.set_value(key, new GLib.Variant('a{si}', {...all, [deviceName]: value}));
     });
+    cleanups.push(watch(settings, [key], () => {
+        if (Math.round(scale.get_value()) === read())
+            return;
+        syncing = true;
+        scale.set_value(read());
+        syncing = false;
+    }));
     const row = new Adw.ActionRow({title, subtitle});
     row.add_suffix(scale);
     return row;
@@ -305,8 +328,9 @@ function addLcdGroup(page, settings, window) {
  *   colourless_modes       effects that ignore colours (their rows are hidden)
  *   speed_modes            effects that move (they get a speed slider)
  *   range_modes            effects that pulse (they get dimmest/brightest sliders)
+ * The rows follow the settings until the functions added to `cleanups` are called.
  */
-function buildDeviceGroup(settings, device) {
+function buildDeviceGroup(settings, device, cleanups) {
     const group = new Adw.PreferencesGroup({title: device.label ?? device.name});
     const zoneLabels = device.zone_labels ?? device.zones;
     const colourless = device.colourless_modes ?? [];
@@ -321,11 +345,11 @@ function buildDeviceGroup(settings, device) {
 
     // Extra sliders that only appear for effects that use them.
     const speedRow = deviceSliderRow(settings, 'device-speeds', device.name,
-        'Speed', 'How fast the effect moves', 50);
+        'Speed', 'How fast the effect moves', 50, cleanups);
     const brightestRow = deviceSliderRow(settings, 'device-max-brightness', device.name,
-        'Brightest', 'The top of each pulse', 100);
+        'Brightest', 'The top of each pulse', 100, cleanups);
     const dimmestRow = deviceSliderRow(settings, 'device-min-brightness', device.name,
-        'Dimmest', 'The bottom of each pulse', 0);
+        'Dimmest', 'The bottom of each pulse', 0, cleanups);
     [speedRow, brightestRow, dimmestRow].forEach(row => group.add(row));
     const speedModes = device.speed_modes ?? [];
     const rangeModes = device.range_modes ?? [];
@@ -333,16 +357,20 @@ function buildDeviceGroup(settings, device) {
     // One colour for everything, for the common case.
     const colourRows = [];
     const zoneButtons = [];
+    const zoneColour = zone => getEntry(settings, 'zone-colours', zoneKey(zone), DEFAULT_COLOUR);
+    let allButton = null;
+    let syncing = false; // true while the buttons are being set to match the settings
     const colourButton = title => new Gtk.ColorDialogButton({
         dialog: new Gtk.ColorDialog({with_alpha: false, title}),
         valign: Gtk.Align.CENTER,
     });
 
     if (device.zones.length > 1) {
-        const allButton = colourButton('All');
-        allButton.rgba = hexToRgba(
-            getEntry(settings, 'zone-colours', zoneKey(device.zones[0]), DEFAULT_COLOUR));
+        allButton = colourButton('All');
+        allButton.rgba = hexToRgba(zoneColour(device.zones[0]));
         allButton.connect('notify::rgba', () => {
+            if (syncing)
+                return; // only showing the first zone's colour, not choosing one
             // Save every zone in one go, then update the buttons to match.
             const hex = rgbaToHex(allButton.rgba);
             setEntries(settings, 'zone-colours',
@@ -361,9 +389,11 @@ function buildDeviceGroup(settings, device) {
     // A colour per zone.
     device.zones.forEach((zone, index) => {
         const button = colourButton(zoneLabels[index] ?? zone);
-        button.rgba = hexToRgba(getEntry(settings, 'zone-colours', zoneKey(zone), DEFAULT_COLOUR));
-        button.connect('notify::rgba', () =>
-            setEntries(settings, 'zone-colours', {[zoneKey(zone)]: rgbaToHex(button.rgba)}));
+        button.rgba = hexToRgba(zoneColour(zone));
+        button.connect('notify::rgba', () => {
+            if (!syncing)
+                setEntries(settings, 'zone-colours', {[zoneKey(zone)]: rgbaToHex(button.rgba)});
+        });
         const row = new Adw.ActionRow({title: zoneLabels[index] ?? zone});
         row.add_suffix(button);
         group.add(row);
@@ -379,10 +409,28 @@ function buildDeviceGroup(settings, device) {
     };
     modeRow.connect('notify::selected', () => {
         const mode = device.modes[modeRow.selected];
-        setEntries(settings, 'device-modes', {[device.name]: mode});
+        if (!syncing)
+            setEntries(settings, 'device-modes', {[device.name]: mode});
         showRowsFor(mode);
     });
     showRowsFor(device.modes[modeRow.selected]);
+
+    // Follow changes made elsewhere ("Load" of the Default, another front end).
+    const sameColour = (button, hex) => rgbaToHex(button.rgba) === rgbaToHex(hexToRgba(hex));
+    cleanups.push(watch(settings, ['device-modes', 'zone-colours'], () => {
+        syncing = true;
+        const index = device.modes.indexOf(getEntry(settings, 'device-modes', device.name,
+            device.default_mode || DEFAULT_MODE));
+        if (index >= 0 && index !== modeRow.selected)
+            modeRow.selected = index;
+        device.zones.forEach((zone, i) => {
+            if (!sameColour(zoneButtons[i], zoneColour(zone)))
+                zoneButtons[i].rgba = hexToRgba(zoneColour(zone));
+        });
+        if (allButton && !sameColour(allButton, zoneColour(device.zones[0])))
+            allButton.rgba = hexToRgba(zoneColour(device.zones[0]));
+        syncing = false;
+    }));
 
     return group;
 }
@@ -416,11 +464,19 @@ function buildDevicePage(settings, window, device) {
     const group = new Adw.PreferencesGroup({title: 'Lights'});
     page.add(group);
     group.add(deviceSwitchRow(settings, 'device-enabled', device.id, true, {title: 'Lights on'}));
-    group.add(deviceSliderRow(settings, 'device-brightness', device.id, 'Brightness', null, 100));
+    const pageCleanups = [];
+    group.add(deviceSliderRow(settings, 'device-brightness', device.id, 'Brightness', null, 100,
+        pageCleanups));
 
     // Lighting groups are rebuilt only when what the hub found really changes.
     let lightGroups = [];
+    const groupCleanups = [];
     let builtFor = null;
+    window.connect('close-request', () => {
+        runAll(pageCleanups);
+        runAll(groupCleanups);
+        return false;
+    });
     const refresh = () => {
         const status = readStatus(settings);
         warning.show(deviceProblem(status, device));
@@ -429,8 +485,9 @@ function buildDevicePage(settings, window, device) {
         if (signature === builtFor)
             return;
         builtFor = signature;
+        runAll(groupCleanups);
         lightGroups.forEach(g => page.remove(g));
-        lightGroups = lights.map(light => buildDeviceGroup(settings, light));
+        lightGroups = lights.map(light => buildDeviceGroup(settings, light, groupCleanups));
         lightGroups.forEach(g => page.add(g));
     };
     follow(settings, window, ['status'], refresh);
