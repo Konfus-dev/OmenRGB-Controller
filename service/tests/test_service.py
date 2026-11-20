@@ -5,10 +5,10 @@ from pathlib import Path
 import pytest
 from gi.repository import GLib
 
-from omenrgb.core.image_prep import ImageError
-from omenrgb.core.lights import DeviceInfo, EffectOptions
-from omenrgb.core.service import Service
-from omenrgb.platforms.gsettings_store import GSettingsStore as Store
+from rgbhub.core.image_prep import ImageError
+from rgbhub.core.lights import DeviceInfo, EffectOptions
+from rgbhub.core.service import Service
+from rgbhub.platforms.gsettings_store import GSettingsStore as Store
 
 
 class FakeStreamer:
@@ -443,7 +443,7 @@ class FakeLooks:
     idle = None  # tests set this to give the OS an idle look
 
     def look_for(self, app_id):
-        from omenrgb.core.look import Look
+        from rgbhub.core.look import Look
 
         return Look("#FF8800", b"firefox icon jpeg") if app_id == "firefox.desktop" else None
 
@@ -454,7 +454,7 @@ class FakeLooks:
         pass
 
     def idle_look(self, image_path=None):
-        from omenrgb.core.look import Look
+        from rgbhub.core.look import Look
 
         if image_path:
             return Look("#00FF00", b"jpeg of " + image_path.encode())
@@ -670,7 +670,7 @@ def test_removing_the_picture_fades_out_then_lets_the_logo_return(fading):
 
 @pytest.fixture
 def auto_idle(auto):
-    from omenrgb.core.look import Look
+    from rgbhub.core.look import Look
 
     service, settings, streamer, lights = auto
     service._looks.idle = Look("#E95420", b"os logo jpeg")
@@ -726,7 +726,7 @@ def test_steady_colours_are_sent_again_every_slow_tick(parts):
 
 @pytest.fixture
 def animated(auto):
-    from omenrgb.core.look import Look
+    from rgbhub.core.look import Look
 
     service, settings, streamer, lights = auto
     service._looks.idle = Look("#00FF00", b"f0", (b"f0", b"f1", b"f2"), 100)

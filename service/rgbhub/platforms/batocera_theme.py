@@ -3,7 +3,7 @@
 
 What goes on the LCD while no game is running:
 
-1. Whatever the theme puts in its `omen-lights/` folder: an animation or a
+1. Whatever the theme puts in its `rgb-hub/` folder: an animation or a
    still picture (see core/lcd_folder.py for what the folder may hold).
 2. Otherwise the picture behind the menu's system list.
 
@@ -20,13 +20,20 @@ ES_SETTINGS = Path("/userdata/system/configs/emulationstation/es_settings.cfg")
 THEME_FOLDERS = (Path("/userdata/themes"), Path("/usr/share/emulationstation/themes"))
 MAX_INCLUDE_DEPTH = 4  # themes split over several files include one another
 
-LCD_FOLDER = "omen-lights"  # the folder a theme uses to say what the LCD shows
+# The folder a theme uses to say what the LCD shows. "omen-lights" is the
+# name from before the project became RGB-Hub; themes made then still work.
+LCD_FOLDERS = ("rgb-hub", "omen-lights")
 
 
 def lcd_folder(es_settings: Path = ES_SETTINGS, theme_folders=THEME_FOLDERS) -> Path | None:
     """The active theme's LCD folder (see core/lcd_folder.py); it need not exist."""
     theme = active_theme(es_settings, theme_folders)
-    return theme / LCD_FOLDER if theme else None
+    if not theme:
+        return None
+    for name in LCD_FOLDERS:
+        if (theme / name).is_dir():
+            return theme / name
+    return theme / LCD_FOLDERS[0]
 
 
 def active_theme(es_settings: Path = ES_SETTINGS, theme_folders=THEME_FOLDERS) -> Path | None:

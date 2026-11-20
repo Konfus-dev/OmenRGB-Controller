@@ -3,7 +3,7 @@ import io
 
 from PIL import Image
 
-from omenrgb.core.look import Look, Looks, dominant_colour, icon_on_black
+from rgbhub.core.look import Look, Looks, dominant_colour, icon_on_black
 
 
 def icon(background, blob=None, size=64):
@@ -140,7 +140,7 @@ def test_is_ignored():
 
 
 def test_cover_lcd_fills_the_whole_screen():
-    from omenrgb.core.look import cover_lcd
+    from rgbhub.core.look import cover_lcd
 
     wide = Image.new("RGB", (1920, 1080), (0, 0, 200))
     image = Image.open(io.BytesIO(cover_lcd(wide)))
@@ -175,7 +175,7 @@ def lcd_jpeg(colour):
 
 
 def test_an_animation_becomes_an_animated_look():
-    from omenrgb.core.look import Animation
+    from rgbhub.core.look import Animation
 
     frames = (lcd_jpeg((0, 200, 0)), lcd_jpeg((0, 255, 0)))
     looks = Looks(lambda subject: None, load_idle=lambda: Animation(frames, 100))
@@ -192,7 +192,7 @@ def test_a_still_look_has_no_frames():
 
 
 def test_an_empty_animation_gives_no_look():
-    from omenrgb.core.look import Animation
+    from rgbhub.core.look import Animation
 
     assert Looks(lambda s: None, load_idle=lambda: Animation((), 100)).idle_look() is None
 

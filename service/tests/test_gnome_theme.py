@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-from omenrgb.platforms.gnome_theme import pick_wallpaper
+from rgbhub.platforms.gnome_theme import pick_wallpaper
 
 
 def test_wallpaper_follows_the_dark_or_light_setting():

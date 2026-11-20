@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-from omenrgb.backends.ram_bios import find_sticks
-from omenrgb.core.lights import DeviceInfo, EffectOptions
-from omenrgb.core.ram import RamLights, commands
+from rgbhub.backends.ram_bios import find_sticks
+from rgbhub.core.lights import DeviceInfo, EffectOptions
+from rgbhub.core.ram import RamLights, commands
 
 BEGIN, END = 0x53, 0x44
 LEFT, RIGHT = 0xC2, 0xC6  # slots 1 and 3, as on the test machine
@@ -63,7 +63,7 @@ def test_every_command_is_one_the_root_helper_accepts():
     import importlib.util
     from pathlib import Path
 
-    path = Path(__file__).resolve().parents[2] / "helper" / "omenrgb_ram_helper.py"
+    path = Path(__file__).resolve().parents[2] / "helper" / "rgbhub_ram_helper.py"
     spec = importlib.util.spec_from_file_location("helper", path)
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)
@@ -366,7 +366,7 @@ Memory Device
 
 
 def test_sticks_from_dmidecode_output():
-    from omenrgb.backends.ram_bios import sticks_from_dmidecode
+    from rgbhub.backends.ram_bios import sticks_from_dmidecode
 
     assert sticks_from_dmidecode(DMIDECODE) == [LEFT, RIGHT]  # slots 1 and 3
     assert sticks_from_dmidecode("") == []
@@ -374,7 +374,7 @@ def test_sticks_from_dmidecode_output():
 
 
 def test_find_sticks_dmi_survives_a_missing_tool():
-    from omenrgb.backends.ram_bios import find_sticks_dmi
+    from rgbhub.backends.ram_bios import find_sticks_dmi
 
     assert find_sticks_dmi(command=["/no/such/dmidecode"]) == []
 
@@ -383,9 +383,9 @@ def test_direct_sender_trusts_the_platforms_list_of_sticks(tmp_path):
     import importlib.util
     from pathlib import Path
 
-    from omenrgb.backends.ram_bios import direct_sender
+    from rgbhub.backends.ram_bios import direct_sender
 
-    path = Path(__file__).resolve().parents[2] / "helper" / "omenrgb_ram_helper.py"
+    path = Path(__file__).resolve().parents[2] / "helper" / "rgbhub_ram_helper.py"
     spec = importlib.util.spec_from_file_location("helper", path)
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)

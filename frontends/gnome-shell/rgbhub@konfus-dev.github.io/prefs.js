@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// The OMEN Lights settings window (opened from "Settings…" in the system
+// The RGB Hub settings window (opened from "Settings…" in the system
 // menu, or from the Extensions app).
 //
 // Like extension.js, this only reads and writes settings; the background
@@ -251,7 +251,7 @@ function buildLcdPage(settings, window) {
 
         const status = readStatus(settings);
         if (status.lcd === undefined)
-            warning.show('The OMEN Lights service is not running.');
+            warning.show('The RGB Hub service is not running.');
         else if (status.error)
             warning.show(status.error);
         else if (!status.lcd)
@@ -385,7 +385,7 @@ function buildLightsPage(settings, window) {
     const refresh = () => {
         const status = readStatus(settings);
         if (status.lcd === undefined)
-            warning.show('The OMEN Lights service is not running.');
+            warning.show('The RGB Hub service is not running.');
         else if (!status.openrgb)
             warning.show('OpenRGB is not running, so the lights cannot be changed.');
         else

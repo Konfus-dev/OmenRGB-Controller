@@ -1,4 +1,4 @@
-# OmenRGB-Controller
+# RGB-Hub
 
 Control the lighting and the CPU-cooler LCD of an **HP OMEN 45L** desktop
 without HP's Windows software. It runs on a GNOME desktop (developed on
@@ -27,7 +27,7 @@ own risk.
 - **Smooth and light:** colours glide and the LCD crossfades when something
   changes, everything goes dark when the PC sleeps, and the service does
   almost nothing while the lights are steady.
-- **One place:** an "OMEN Lights" button next to Wi-Fi and Bluetooth that
+- **One place:** an "RGB Hub" button next to Wi-Fi and Bluetooth that
   opens a settings window for all of it.
 - Your choices come back by themselves after a reboot.
 
@@ -54,8 +54,8 @@ and the three front fans have lights, so the rest are hidden.
 ## Install on a GNOME desktop
 
 ```sh
-git clone https://github.com/Konfus-dev/OmenRGB-Controller.git
-cd OmenRGB-Controller
+git clone https://github.com/Konfus-dev/RGB-Hub.git
+cd RGB-Hub
 
 # 1. Once, as root: installs OpenRGB and acpi_call, gives your user access
 #    to the LCD, and installs the small RAM lighting helper.
@@ -66,16 +66,16 @@ sudo bash install/setup.sh
 bash install/install-user.sh
 
 # 3. Log out and back in, then:
-gnome-extensions enable omenrgb@konfus-dev.github.io
+gnome-extensions enable rgbhub@konfus-dev.github.io
 ```
 
-The "OMEN Lights" button now appears in the top-right menu. Press it to open
+The "RGB Hub" button now appears in the top-right menu. Press it to open
 the settings window (or bring it to the front if it is already open).
 
 ## How it works
 
 ```
- GNOME Shell extension  --settings-->  omenrgb service  -->  cooler LCD (USB)
+ GNOME Shell extension  --settings-->  rgbhub service  -->  cooler LCD (USB)
  (button + settings window)            (Python, runs at  -->  OpenRGB server --> case lights
                                         login)           -->  root helper --> BIOS --> RAM lights
 ```
@@ -100,7 +100,7 @@ partition mounted:
 sudo bash install/install-batocera.sh /path/to/SHARE
 ```
 
-Then boot Batocera and switch **OMEN_LIGHTS** on under **Main menu > System
+Then boot Batocera and switch **RGB_HUB** on under **Main menu > System
 Settings > Services**. In the menus the LCD shows the Batocera logo; while a
 game runs it shows that game's artwork, and the lights take its colour.
 Settings are a small JSON file; see
@@ -114,15 +114,15 @@ one folder that overrides this:
 
 | System | Folder |
 |---|---|
-| GNOME desktop | `~/.config/omenrgb/lcd/` |
-| Batocera | `omen-lights/` inside the active theme's folder |
+| GNOME desktop | `~/.config/rgbhub/lcd/` |
+| Batocera | `rgb-hub/` inside the active theme's folder |
 
 Put **one picture** in it for a still, **one animated file** (GIF, animated
 WebP or PNG) for an animation, or **several LCD-ready JPEG frames**
 (480x480, at most 60,000 bytes each, named in order) for a pre-rendered
 animation; a text file `frame_ms` sets the time per frame. Empty the folder
 to go back to the default. On the desktop, restart the service afterwards:
-`systemctl --user restart omenrgb`.
+`systemctl --user restart rgbhub`.
 
 ## How the code is organised
 
@@ -130,24 +130,24 @@ The code is meant to be easy to change and to extend to other systems.
 
 | Folder | What lives there |
 |---|---|
-| `service/omenrgb/core/` | What the LCD and lights should do. No operating-system or hardware-library imports. `interfaces.py` describes what it needs handed in; `settings_schema.py` lists every setting. |
-| `service/omenrgb/backends/` | One file per way of reaching hardware: `hidraw.py` (LCD), `openrgb.py` and `tracer.py` (case lights), `ram_bios.py` (RAM). |
-| `service/omenrgb/platforms/` | One file per system (`gnome.py`, `batocera.py`) that picks backends and wires in that system's settings storage, timers and "what is in focus". |
-| `service/omenrgb/omen45l.py` | Facts about this PC model: zone names, hidden zones, colour correction. |
+| `service/rgbhub/core/` | What the LCD and lights should do. No operating-system or hardware-library imports. `interfaces.py` describes what it needs handed in; `settings_schema.py` lists every setting. |
+| `service/rgbhub/backends/` | One file per way of reaching hardware: `hidraw.py` (LCD), `openrgb.py` and `tracer.py` (case lights), `ram_bios.py` (RAM). |
+| `service/rgbhub/platforms/` | One file per system (`gnome.py`, `batocera.py`) that picks backends and wires in that system's settings storage, timers and "what is in focus". |
+| `service/rgbhub/omen45l.py` | Facts about this PC model: zone names, hidden zones, colour correction. |
 | `frontends/` | What you see and touch: the GNOME Shell extension, the Batocera service switch and game hook. A front end only reads and writes settings. |
 | `helper/` | The small root helper for RAM lights on desktop Linux. |
 | `install/`, `systemd/` | Set-up scripts and service definitions. |
 
 **Adding a system** (another distro, Windows): write
 `platforms/<name>.py` with a `main()` that builds a `Service` from the
-pieces that fit, and list it in `service/omenrgb/__main__.py`. Reuse the
+pieces that fit, and list it in `service/rgbhub/__main__.py`. Reuse the
 backends that work there; add one where they do not.
 
 **Adding a front end**: anything that can write the settings in
 `core/settings_schema.py` and read the `status` report is a front end.
 
 On the GNOME desktop:
-after editing the service: `systemctl --user restart omenrgb`;
+after editing the service: `systemctl --user restart rgbhub`;
 after editing the settings list: `bash install/install-user.sh`;
 after editing the root helper: `sudo bash install/setup.sh`;
 after editing the extension's menu button: log out and back in.
@@ -163,21 +163,21 @@ python3 -m venv --system-site-packages .venv
 ## Troubleshooting
 
 ```sh
-journalctl --user -u omenrgb -e           # what the service is doing
+journalctl --user -u rgbhub -e           # what the service is doing
 journalctl --user -u openrgb-server -e    # what OpenRGB is doing
-journalctl -u omenrgb-ram -e              # what the RAM helper is doing
-systemctl --user status omenrgb openrgb-server
+journalctl -u rgbhub-ram -e              # what the RAM helper is doing
+systemctl --user status rgbhub openrgb-server
 
 # What the service currently sees:
-gsettings --schemadir ~/.local/share/gnome-shell/extensions/omenrgb@konfus-dev.github.io/schemas \
-    get org.gnome.shell.extensions.omenrgb status
+gsettings --schemadir ~/.local/share/gnome-shell/extensions/rgbhub@konfus-dev.github.io/schemas \
+    get org.gnome.shell.extensions.rgbhub status
 ```
 
 - **LCD shows the OMEN logo:** no image chosen, or the service is not
   running.
 - **Lights do not react:** OpenRGB is not running. If it has just been
   restarted it can need a minute or two before it accepts connections.
-- **RAM lights do not react:** check `systemctl status omenrgb-ram.socket`
+- **RAM lights do not react:** check `systemctl status rgbhub-ram.socket`
   and that `lsmod | grep acpi_call` shows the module.
 - **Auto mode does nothing:** it needs the extension, so log out and back in
   after installing. Apps without an icon in your icon theme keep the normal
@@ -190,17 +190,17 @@ gsettings --schemadir ~/.local/share/gnome-shell/extensions/omenrgb@konfus-dev.g
 ## Uninstall
 
 ```sh
-gnome-extensions disable omenrgb@konfus-dev.github.io
-systemctl --user disable --now omenrgb openrgb-server
-rm ~/.config/systemd/user/omenrgb.service ~/.config/systemd/user/openrgb-server.service
-rm ~/.local/share/gnome-shell/extensions/omenrgb@konfus-dev.github.io
-rm -r ~/.local/share/omenrgb
-rm -r ~/.config/omenrgb
-sudo systemctl disable --now omenrgb-ram.socket omenrgb-ram.service
-sudo rm /etc/systemd/system/omenrgb-ram.socket /etc/systemd/system/omenrgb-ram.service
-sudo rm -r /usr/local/lib/omenrgb
+gnome-extensions disable rgbhub@konfus-dev.github.io
+systemctl --user disable --now rgbhub openrgb-server
+rm ~/.config/systemd/user/rgbhub.service ~/.config/systemd/user/openrgb-server.service
+rm ~/.local/share/gnome-shell/extensions/rgbhub@konfus-dev.github.io
+rm -r ~/.local/share/rgbhub
+rm -r ~/.config/rgbhub
+sudo systemctl disable --now rgbhub-ram.socket rgbhub-ram.service
+sudo rm /etc/systemd/system/rgbhub-ram.socket /etc/systemd/system/rgbhub-ram.service
+sudo rm -r /usr/local/lib/rgbhub
 sudo rm /etc/udev/rules.d/70-omen-lcd.rules /etc/modules-load.d/i2c-dev.conf \
-        /etc/modules-load.d/omenrgb-acpi-call.conf
+        /etc/modules-load.d/rgbhub-acpi-call.conf
 ```
 
 ## Credits

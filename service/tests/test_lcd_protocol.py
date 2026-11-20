@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import pytest
 
-from omenrgb.core import lcd_protocol as p
+from rgbhub.core import lcd_protocol as p
 
 
 def test_claim_report():

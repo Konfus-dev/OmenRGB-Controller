@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 [Unit]
-Description=OpenRGB lighting server (no window), used by OMEN Lights
+Description=OpenRGB lighting server (no window), used by RGB Hub
 
 [Service]
 # Listens on this computer only. --noautoconnect stops it from trying to
@@ -9,11 +9,11 @@ Description=OpenRGB lighting server (no window), used by OMEN Lights
 # OpenRGB gets its own settings folder in which every hardware detector is
 # off except the case-light board. Its normal RAM probing makes the RAM's
 # control bus on the OMEN 45L stop responding until the next reboot.
-ExecStartPre=%h/.local/share/omenrgb/venv/bin/python -m omenrgb.backends.openrgb %h/.config/omenrgb/openrgb %h/.config/OpenRGB/OpenRGB.json
+ExecStartPre=%h/.local/share/rgbhub/venv/bin/python -m rgbhub.backends.openrgb %h/.config/rgbhub/openrgb %h/.config/OpenRGB/OpenRGB.json
 # A newer OpenRGB may know detectors the config does not switch off. Refuse to
 # start it until install-user.sh has looked at the new version.
-ExecStartPre=%h/.local/share/omenrgb/venv/bin/python -m omenrgb.backends.openrgb --check-program %h/.config/omenrgb/openrgb
-ExecStart=/usr/bin/openrgb --server --server-host 127.0.0.1 --noautoconnect --config %h/.config/omenrgb/openrgb
+ExecStartPre=%h/.local/share/rgbhub/venv/bin/python -m rgbhub.backends.openrgb --check-program %h/.config/rgbhub/openrgb
+ExecStart=/usr/bin/openrgb --server --server-host 127.0.0.1 --noautoconnect --config %h/.config/rgbhub/openrgb
 Restart=on-failure
 RestartSec=5
 

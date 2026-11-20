@@ -3,8 +3,8 @@ import io
 
 from PIL import Image
 
-from omenrgb.core.lcd_folder import load_lcd_folder
-from omenrgb.core.look import Animation, cover_lcd
+from rgbhub.core.lcd_folder import load_lcd_folder
+from rgbhub.core.look import Animation, cover_lcd
 
 JPEG = b"\xff\xd8" + b"x" * 100
 

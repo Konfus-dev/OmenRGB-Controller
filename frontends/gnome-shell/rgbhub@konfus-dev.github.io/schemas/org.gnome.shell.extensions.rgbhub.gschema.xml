@@ -6,7 +6,7 @@
   install/install-user.sh again.
 -->
 <schemalist>
-  <schema id="org.gnome.shell.extensions.omenrgb" path="/org/gnome/shell/extensions/omenrgb/">
+  <schema id="org.gnome.shell.extensions.rgbhub" path="/org/gnome/shell/extensions/rgbhub/">
 
     <key name="lights-enabled" type="b">
       <default>true</default>

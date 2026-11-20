@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Start the service for the system it is running on.
 
-    python -m omenrgb                      (works out the platform itself)
-    python -m omenrgb --platform gnome ... (or name it)
+    python -m rgbhub                      (works out the platform itself)
+    python -m rgbhub --platform gnome ... (or name it)
 
 To add a system, write platforms/<name>.py with a main(argv) function and
 list it in PLATFORMS below.
@@ -29,7 +29,7 @@ def main(argv: list[str]) -> int:
     if name not in PLATFORMS:
         print(f"Unknown platform '{name}'. Known: {', '.join(PLATFORMS)}", file=sys.stderr)
         return 2
-    return importlib.import_module(f"omenrgb.platforms.{name}").main(argv)
+    return importlib.import_module(f"rgbhub.platforms.{name}").main(argv)
 
 
 if __name__ == "__main__":

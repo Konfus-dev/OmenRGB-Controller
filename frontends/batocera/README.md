@@ -1,12 +1,12 @@
-# OMEN Lights on Batocera
+# RGB Hub on Batocera
 
 Switch it on or off under **Main menu > System Settings > Services >
-OMEN_LIGHTS**.
+RGB_HUB**.
 
 While it is on:
 
 - **In the menus** the PC matches your menu theme. If the theme has an
-  `omen-lights/` folder, the LCD shows what is in it (an animation or a
+  `rgb-hub/` folder, the LCD shows what is in it (an animation or a
   picture); otherwise it shows the theme's menu background. The lights take
   that picture's main colour.
 - **While a game runs** the LCD shows that game's artwork (its logo if one
@@ -16,14 +16,14 @@ While it is on:
 ## Settings
 
 Edit `settings.json` in this folder (from Batocera it is
-`/userdata/system/configs/omen-lights/settings.json`). Changes apply as soon
+`/userdata/system/configs/rgb-hub/settings.json`). Changes apply as soon
 as the file is saved. Only list what you want to change, for example:
 
 ```json
 {
     "lights-brightness": 60,
     "lcd-brightness": 70,
-    "auto-idle-image": "/userdata/system/configs/omen-lights/menu.png",
+    "auto-idle-image": "/userdata/system/configs/rgb-hub/menu.png",
     "auto-idle-colour": "#00AA00",
     "device-modes": {"HP Omen 30L": "Breathing"}
 }
@@ -42,9 +42,9 @@ as the file is saved. Only list what you want to change, for example:
 
 ## If something is wrong
 
-The log is `/userdata/system/logs/omen-lights.log`; the previous run's is
-kept beside it as `omen-lights.log.old`. For a detailed log, create an empty
-file `/userdata/system/configs/omen-lights/debug` and switch the service off
+The log is `/userdata/system/logs/rgb-hub.log`; the previous run's is
+kept beside it as `rgb-hub.log.old`. For a detailed log, create an empty
+file `/userdata/system/configs/rgb-hub/debug` and switch the service off
 and on. Remove it afterwards: the detailed log grows quickly.
 
 If the program stops by itself it is started again automatically, and a
@@ -61,7 +61,7 @@ when it wakes.
 
 ## The theme's LCD folder
 
-A folder named `omen-lights` inside a theme's folder decides what the LCD
+A folder named `rgb-hub` inside a theme's folder decides what the LCD
 shows in the menus while that theme is active. Without it, the theme's menu
 background is shown. The folder may hold:
 

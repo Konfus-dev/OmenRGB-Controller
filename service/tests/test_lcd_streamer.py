@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-from omenrgb.core import lcd_protocol as p
-from omenrgb.core.lcd_streamer import LcdStreamer
+from rgbhub.core import lcd_protocol as p
+from rgbhub.core.lcd_streamer import LcdStreamer
 
 JPEG = bytes(range(256)) * 10  # 3 chunks
 

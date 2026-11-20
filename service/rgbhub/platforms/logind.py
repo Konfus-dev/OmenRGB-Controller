@@ -48,7 +48,7 @@ def watch_for_sleep(
                 "Inhibit",
                 GLib.Variant(
                     "(ssss)",
-                    ("sleep", "OMEN Lights", "Switch the lights off before sleep", "delay"),
+                    ("sleep", "RGB Hub", "Switch the lights off before sleep", "delay"),
                 ),
                 GLib.VariantType("(h)"),
                 Gio.DBusCallFlags.NONE,

@@ -8,7 +8,7 @@ What this platform chooses:
 - RAM lights:   the root helper, which asks the BIOS
 - what is in focus: the app the extension reports; its icon comes from the
                 icon theme. With nothing in focus the LCD shows what is in
-                ~/.config/omenrgb/lcd/ if anything, else the wallpaper, and
+                ~/.config/rgbhub/lcd/ if anything, else the wallpaper, and
                 the lights take that picture's main colour
 - sleep/wake:   systemd-logind
 """
@@ -33,7 +33,7 @@ from .gsettings_store import GSettingsStore, load_settings
 
 log = logging.getLogger(__name__)
 
-EXTENSION_UUID = "omenrgb@konfus-dev.github.io"
+EXTENSION_UUID = "rgbhub@konfus-dev.github.io"
 
 # Auto mode leaves the normal look alone while one of these apps has focus.
 # The first is the window GNOME shows this project's settings in, so that
@@ -49,7 +49,7 @@ def default_schema_dir() -> Path:
 def default_lcd_folder() -> Path:
     """Where the owner can put an animation or picture for the LCD to show
     when nothing is in focus (see core/lcd_folder.py)."""
-    return Path(GLib.get_user_config_dir()) / "omenrgb" / "lcd"
+    return Path(GLib.get_user_config_dir()) / "rgbhub" / "lcd"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -120,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
     # Kept in a variable until we exit: the notifications stop once nothing
     # refers to the connection any more.
     sleep_watch = logind.watch_for_sleep(service.on_sleep, service.on_resume)
-    log.info("omenrgb service running (GNOME)")
+    log.info("rgbhub service running (GNOME)")
     glib_runtime.run_until_stopped()
     del sleep_watch
     service.stop()

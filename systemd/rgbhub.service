@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 [Unit]
-Description=OMEN Lights service (cooler LCD and case lights)
+Description=RGB Hub service (cooler LCD and case lights)
 After=openrgb-server.service
 Wants=openrgb-server.service
 # When OpenRGB is restarted, stop first and start after it. While we hold a
@@ -10,8 +10,8 @@ PartOf=openrgb-server.service
 [Service]
 # Rebuild the compiled settings list first, so a newly pulled version with
 # new settings never starts against an old list.
-ExecStartPre=/usr/bin/glib-compile-schemas %h/.local/share/gnome-shell/extensions/omenrgb@konfus-dev.github.io/schemas
-ExecStart=%h/.local/share/omenrgb/venv/bin/python -m omenrgb
+ExecStartPre=/usr/bin/glib-compile-schemas %h/.local/share/gnome-shell/extensions/rgbhub@konfus-dev.github.io/schemas
+ExecStart=%h/.local/share/rgbhub/venv/bin/python -m rgbhub
 Restart=on-failure
 RestartSec=5
 

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// The "OMEN Lights" button in the top-right system menu.
+// The "RGB Hub" button in the top-right system menu.
 //
 // Pressing it opens the settings window (prefs.js), where everything is
-// changed. The background service (service/omenrgb) then does the real work,
+// changed. The background service (service/rgbhub) then does the real work,
 // so nothing in here can slow down or freeze the desktop.
 //
 // For auto mode this file also tells the service which app has focus, by
@@ -40,7 +40,7 @@ const OmenButton = GObject.registerClass(
 class OmenButton extends QuickToggle {
     _init(extension) {
         // toggleMode: false makes it a plain button, not an on/off switch.
-        super._init({title: 'OMEN Lights', iconName: ICON, toggleMode: false});
+        super._init({title: 'RGB Hub', iconName: ICON, toggleMode: false});
 
         this.connect('clicked', () => {
             Main.panel.closeQuickSettings();
@@ -77,7 +77,7 @@ export default class OmenLightsExtension extends Extension {
         try {
             this._startFocusTracking();
         } catch (error) {
-            console.error(`OMEN Lights: auto mode is unavailable: ${error}`);
+            console.error(`RGB Hub: auto mode is unavailable: ${error}`);
         }
     }
 

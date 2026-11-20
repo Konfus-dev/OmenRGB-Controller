@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import json
 
-from omenrgb.backends.openrgb import (
+from rgbhub.backends.openrgb import (
     program_unchanged,
     record_program,
     restrict_detectors,

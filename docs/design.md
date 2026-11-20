@@ -1,6 +1,6 @@
 # Design
 
-How OmenRGB-Controller is put together, and why. For installing and
+How RGB-Hub is put together, and why. For installing and
 using it, see the [README](../README.md).
 
 ## Goals
@@ -35,13 +35,13 @@ using it, see the [README](../README.md).
                                                   \-------> RamLights ---> ram_bios.py  -> BIOS -> RAM
 ```
 
-- **core** (`service/omenrgb/core/`) decides what the LCD and lights
+- **core** (`service/rgbhub/core/`) decides what the LCD and lights
   should show. It imports no operating-system or hardware-library modules.
   Everything it needs is handed to `Service`: settings, a scheduler, the
   objects that reach hardware. `interfaces.py` describes those shapes.
-- **backends** (`service/omenrgb/backends/`) each reach one kind of
+- **backends** (`service/rgbhub/backends/`) each reach one kind of
   hardware one way.
-- **platforms** (`service/omenrgb/platforms/`) are the only place that
+- **platforms** (`service/rgbhub/platforms/`) are the only place that
   knows about a particular system. Each has a `main()` that picks backends,
   a settings store, timers, and a source for "what is in focus", and builds
   the `Service` from them.
@@ -57,7 +57,7 @@ using it, see the [README](../README.md).
 | RAM lights | root helper over a socket | in-process (the service is root), if `acpi_call` exists |
 | In focus | the focused app; its icon from the icon theme | the running game; its scraped artwork |
 | Idle look (nothing in focus) | the wallpaper and its main colour (`gnome_theme.py`) | the menu theme's background (`batocera_theme.py`) |
-| LCD override folder (`core/lcd_folder.py`) | `~/.config/omenrgb/lcd/` | `omen-lights/` in the active theme |
+| LCD override folder (`core/lcd_folder.py`) | `~/.config/rgbhub/lcd/` | `rgb-hub/` in the active theme |
 | Sleep/wake | systemd-logind | Batocera's suspend/resume hooks |
 | Timers, file watching | GLib (`glib_runtime.py`) | GLib |
 
@@ -132,9 +132,9 @@ Because only root can call ACPI methods, a root helper sits in between.
 It was chosen over a custom kernel module (more to maintain) and over a
 password prompt per change (unusable). The helper:
 
-- runs from a root-owned copy in `/usr/local/lib/omenrgb/`, standard
+- runs from a root-owned copy in `/usr/local/lib/rgbhub/`, standard
   library only;
-- listens on `/run/omenrgb-ram.sock`, which only the installing user can
+- listens on `/run/rgbhub-ram.sock`, which only the installing user can
   open;
 - accepts one request, "write value V to register R of stick A", and
   checks A, R and V against fixed lists and that a stick is in that slot.

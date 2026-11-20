@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import pytest
 
-from omenrgb.platforms.gsettings_store import load_settings
+from rgbhub.platforms.gsettings_store import load_settings
 
 
 def test_defaults(settings):
@@ -23,7 +23,7 @@ def test_missing_compiled_schema(tmp_path):
 
 
 def test_store_reads_and_writes_plain_python_values(settings):
-    from omenrgb.platforms.gsettings_store import GSettingsStore
+    from rgbhub.platforms.gsettings_store import GSettingsStore
 
     store = GSettingsStore(settings)
     assert store.get("lights-enabled") is True and store.get("zone-colours") == {}
@@ -40,7 +40,7 @@ def test_store_reads_and_writes_plain_python_values(settings):
 def test_store_reports_changes_until_unsubscribed(settings):
     from gi.repository import GLib
 
-    from omenrgb.platforms.gsettings_store import GSettingsStore
+    from rgbhub.platforms.gsettings_store import GSettingsStore
 
     store, seen = GSettingsStore(settings), []
     store.subscribe(seen.append)
@@ -59,7 +59,7 @@ def test_store_reports_changes_until_unsubscribed(settings):
 def test_gsettings_schema_matches_the_list_of_settings(settings):
     # settings_schema.py is the contract with every front end; the GSettings
     # schema is GNOME's copy of it and must not drift.
-    from omenrgb.core.settings_schema import DEFAULTS
+    from rgbhub.core.settings_schema import DEFAULTS
 
     schema = settings.props.settings_schema
     assert sorted(schema.list_keys()) == sorted(DEFAULTS)

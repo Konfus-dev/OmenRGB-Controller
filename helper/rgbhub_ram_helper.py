@@ -171,4 +171,4 @@ if __name__ == "__main__":
     try:
         serve(socket.socket(fileno=3))
     except OSError as error:
-        sys.exit(f"omenrgb-ram-helper must be started by systemd socket activation: {error}")
+        sys.exit(f"rgbhub-ram-helper must be started by systemd socket activation: {error}")

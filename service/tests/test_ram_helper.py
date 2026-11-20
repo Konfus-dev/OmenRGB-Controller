@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-HELPER = Path(__file__).resolve().parents[2] / "helper" / "omenrgb_ram_helper.py"
-spec = importlib.util.spec_from_file_location("omenrgb_ram_helper", HELPER)
+HELPER = Path(__file__).resolve().parents[2] / "helper" / "rgbhub_ram_helper.py"
+spec = importlib.util.spec_from_file_location("rgbhub_ram_helper", HELPER)
 h = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(h)
 

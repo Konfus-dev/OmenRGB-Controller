@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# One-time system setup for OmenRGB-Controller. Run once with:
+# One-time system setup for RGB-Hub. Run once with:
 #     sudo bash install/setup.sh
 # It is safe to run again. Apart from the small RAM lighting helper it
 # installs, everything in this project runs without root.
@@ -51,28 +51,28 @@ ram_ok=yes
 apt-get install -y acpi-call-dkms || ram_ok=no
 modprobe acpi_call || ram_ok=no
 if [[ $ram_ok == yes ]]; then
-    printf 'acpi_call\n' > /etc/modules-load.d/omenrgb-acpi-call.conf
+    printf 'acpi_call\n' > /etc/modules-load.d/rgbhub-acpi-call.conf
 else
     # Do not ask for a module at every boot that cannot be loaded.
-    rm -f /etc/modules-load.d/omenrgb-acpi-call.conf
+    rm -f /etc/modules-load.d/rgbhub-acpi-call.conf
     warn "acpi_call is not working (new kernel? Secure Boot?). RAM lights will be unavailable; everything else is unaffected."
 fi
 
 echo "==> Installing the RAM lighting helper (the only part that runs as root)"
-install -d -m 0755 /usr/local/lib/omenrgb
-install -m 0755 -o root -g root "$repo/helper/omenrgb_ram_helper.py" /usr/local/lib/omenrgb/
-install -m 0644 "$repo/systemd/omenrgb-ram.service" /etc/systemd/system/
-sed "s/@USER@/$user/" "$repo/systemd/omenrgb-ram.socket" > /etc/systemd/system/omenrgb-ram.socket
+install -d -m 0755 /usr/local/lib/rgbhub
+install -m 0755 -o root -g root "$repo/helper/rgbhub_ram_helper.py" /usr/local/lib/rgbhub/
+install -m 0644 "$repo/systemd/rgbhub-ram.service" /etc/systemd/system/
+sed "s/@USER@/$user/" "$repo/systemd/rgbhub-ram.socket" > /etc/systemd/system/rgbhub-ram.socket
 systemctl daemon-reload
 # Stop the running helper first: systemd will not restart a socket whose
 # service is still active. The next request starts the new copy.
-systemctl stop omenrgb-ram.service 2>/dev/null || true
+systemctl stop rgbhub-ram.service 2>/dev/null || true
 if [[ $ram_ok == yes ]]; then
-    systemctl enable omenrgb-ram.socket
-    systemctl restart omenrgb-ram.socket
+    systemctl enable rgbhub-ram.socket
+    systemctl restart rgbhub-ram.socket
 else
     # Without acpi_call the helper could only fail; leave it switched off.
-    systemctl disable --now omenrgb-ram.socket 2>/dev/null || true
+    systemctl disable --now rgbhub-ram.socket 2>/dev/null || true
 fi
 
 echo "Done."

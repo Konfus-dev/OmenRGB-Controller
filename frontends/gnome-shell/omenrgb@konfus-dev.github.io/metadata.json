@@ -1,8 +1,0 @@
-{
-    "uuid": "omenrgb@konfus-dev.github.io",
-    "name": "OMEN Lights",
-    "description": "Control the HP OMEN 45L cooler LCD and case lights from the system menu. Needs the omenrgb background service from the same project.",
-    "shell-version": ["50"],
-    "settings-schema": "org.gnome.shell.extensions.omenrgb",
-    "url": "https://github.com/Konfus-dev/OmenRGB-Controller"
-}

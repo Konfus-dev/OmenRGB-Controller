@@ -11,7 +11,7 @@ from typing import Any
 
 from gi.repository import Gio, GLib
 
-SCHEMA_ID = "org.gnome.shell.extensions.omenrgb"
+SCHEMA_ID = "org.gnome.shell.extensions.rgbhub"
 
 
 def load_settings(schema_dir: Path, backend: Gio.SettingsBackend | None = None) -> Gio.Settings:

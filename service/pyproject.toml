@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "omenrgb"
+name = "rgbhub"
 version = "0.1.0"
 description = "Background service for the HP OMEN 45L cooler LCD and case lights"
 license = "GPL-3.0-or-later"
@@ -15,7 +15,7 @@ dependencies = ["openrgb-python==0.3.8"]
 dev = ["pytest", "ruff"]
 
 [tool.setuptools]
-packages = ["omenrgb"]
+packages = ["rgbhub"]
 
 [tool.ruff]
 line-length = 100

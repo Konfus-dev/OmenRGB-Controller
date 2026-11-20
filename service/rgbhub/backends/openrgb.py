@@ -9,7 +9,7 @@ bus stop responding until the next reboot (the RAM temperature sensors go
 dead). So OpenRGB gets its own configuration folder in which every hardware
 detector is switched off except the ones named in DETECTORS below.
 
-Run as:  python -m omenrgb.backends.openrgb <config folder> [other OpenRGB.json ...]
+Run as:  python -m rgbhub.backends.openrgb <config folder> [other OpenRGB.json ...]
 Prints how many detectors it now knows about.
 
 OpenRGB runs any detector its config does not name, so a newer OpenRGB with
@@ -46,7 +46,7 @@ def connect():
     """
     from openrgb import OpenRGBClient  # imported late: it is slow to load
 
-    client = OpenRGBClient(HOST, PORT, "omenrgb")
+    client = OpenRGBClient(HOST, PORT, "rgbhub")
     # The library waits up to 10 seconds for each answer by default, which
     # would freeze the service (and the LCD) if OpenRGB ever hung.
     client.comms.sock.settimeout(TIMEOUT_S)
@@ -117,7 +117,7 @@ if __name__ == "__main__":
     elif sys.argv[1] == "--check-program":
         if not program_unchanged(Path(sys.argv[2])):
             sys.exit(
-                "OpenRGB has been updated since OMEN Lights was set up. Not starting it: a new "
+                "OpenRGB has been updated since RGB Hub was set up. Not starting it: a new "
                 "version may probe the RAM. Run install/install-user.sh again to re-check it."
             )
     else:

@@ -3,8 +3,8 @@
 
 What this platform chooses:
 - settings:     a JSON file the owner can edit,
-                /userdata/system/configs/omen-lights/settings.json
-- front end:    the "OMEN_LIGHTS" switch under System Settings > Services,
+                /userdata/system/configs/rgb-hub/settings.json
+- front end:    the "RGB_HUB" switch under System Settings > Services,
                 plus a game hook (frontends/batocera) that writes the path
                 of the running game to a small file
 - case lights:  our own driver (backends/tracer.py); Batocera has no OpenRGB
@@ -41,14 +41,14 @@ from .json_store import JsonSettings
 
 log = logging.getLogger(__name__)
 
-SETTINGS_FILE = Path("/userdata/system/configs/omen-lights/settings.json")
-SUBJECT_FILE = Path("/var/run/omen-lights/now-playing")  # written by the game hook
+SETTINGS_FILE = Path("/userdata/system/configs/rgb-hub/settings.json")
+SUBJECT_FILE = Path("/var/run/rgb-hub/now-playing")  # written by the game hook
 POLL_MS = 1000  # how often the game hook's file and the settings are re-read
-ASLEEP_MARKER = Path("/var/run/omen-lights/asleep")  # the suspend script waits for this
+ASLEEP_MARKER = Path("/var/run/rgb-hub/asleep")  # the suspend script waits for this
 OS_LOGO = Path("/usr/share/batocera/splash/boot-logo.png")
 ACPI_CALL = Path("/proc/acpi/call")
 # The helper sits beside the "service" folder, in the repo and on the drive.
-RAM_HELPER = Path(__file__).resolve().parents[3] / "helper" / "omenrgb_ram_helper.py"
+RAM_HELPER = Path(__file__).resolve().parents[3] / "helper" / "rgbhub_ram_helper.py"
 
 DEFAULTS = {
     # On a games machine, following the game is the point: on unless switched off.
@@ -104,7 +104,7 @@ def _ram_lights() -> RamLights | None:
     if not (ACPI_CALL.exists() and RAM_HELPER.exists()):
         log.info("RAM lights unavailable (no acpi_call module); leaving the RAM alone")
         return None
-    spec = importlib.util.spec_from_file_location("omenrgb_ram_helper", RAM_HELPER)
+    spec = importlib.util.spec_from_file_location("rgbhub_ram_helper", RAM_HELPER)
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)
     return RamLights(
@@ -222,7 +222,7 @@ def main(argv: list[str] | None = None) -> int:
     glib_runtime.on_signal(signal.SIGUSR2, woke_up)
     glib_runtime.GLibScheduler().every(POLL_MS, look_again)
     service.start()
-    log.info("omenrgb service running (Batocera)")
+    log.info("rgbhub service running (Batocera)")
     glib_runtime.run_until_stopped()
     stop_following()
     stop_watching()

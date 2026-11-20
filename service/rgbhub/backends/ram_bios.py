@@ -5,7 +5,7 @@ The sticks are never spoken to directly over SMBus: on the OMEN 45L that
 jams the RAM's control bus until the next reboot. Every write is handed to
 the BIOS, the way HP's own software does it. Only root can do that, so an
 ordinary user's service goes through the small root helper
-(helper/omenrgb_ram_helper.py).
+(helper/rgbhub_ram_helper.py).
 """
 
 import socket
@@ -14,7 +14,7 @@ from pathlib import Path
 
 from ..core.ram import Command
 
-HELPER_SOCKET = "/run/omenrgb-ram.sock"
+HELPER_SOCKET = "/run/rgbhub-ram.sock"
 # The helper normally answers within a tenth of a second. Waiting longer
 # would hold up the rest of the service, which has an LCD to keep fed.
 HELPER_TIMEOUT_S = 1.0
@@ -91,7 +91,7 @@ def find_sticks_dmi(command: tuple[str, ...] | list[str] = ("dmidecode", "-t", "
 def direct_sender(helper, find):
     """A RAM sender for a service that is itself root (Batocera).
 
-    `helper` is the root helper's module (helper/omenrgb_ram_helper.py),
+    `helper` is the root helper's module (helper/rgbhub_ram_helper.py),
     loaded by the platform. Its checks on registers and values are used
     exactly as in the socket case, so there is still only one place that
     decides what may be sent. `find()` lists the fitted sticks, standing in

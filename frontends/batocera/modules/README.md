@@ -4,7 +4,7 @@
 source: the `acpi-call-dkms` package, https://github.com/nix-community/acpi_call)
 built for that Batocera kernel. It lets the service ask the BIOS to set the
 RAM lights. Batocera does not ship it and has no compiler, so it is built on
-another PC and loaded by the OMEN_LIGHTS service.
+another PC and loaded by the RGB_HUB service.
 
 It only fits the exact kernel it was built for. `6.18.16` is Batocera 43.1.
 After a Batocera update with a new kernel the RAM lights stop (everything
