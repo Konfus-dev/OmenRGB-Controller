@@ -224,7 +224,8 @@ def main(argv: list[str] | None = None) -> int:
                 watch_file=glib_runtime.watch_file,
             ),
             IqunixKeyboard(
-                Lights(via.opener(iqunix_mg65.MG65)), display_names=iqunix_mg65.DISPLAY_NAMES
+                Lights(via.opener(iqunix_mg65.MG65), name="Keyboard lights"),
+                display_names=iqunix_mg65.DISPLAY_NAMES,
             ),
         ],
         looks=looks,

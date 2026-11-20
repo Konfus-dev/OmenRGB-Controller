@@ -49,12 +49,12 @@ def test_a_static_colour_is_sent_once_and_only_changes_after():
     assert commands(port) == [
         (7, 3, 2, 1),
         (7, 3, 4, 0, 255),
-        (7, 3, 1, 255),
+        (7, 3, 1, 9),
     ]  # effect, colour, brightness
     lights.apply(True, 100, {}, {"IQUNIX MG65/All keys": "#FF0000"})
     assert len(port.sent) == 3  # nothing changed: nothing sent
     lights.apply(True, 50, {}, {"IQUNIX MG65/All keys": "#FF0000"})
-    assert commands(port)[3:] == [(7, 3, 1, 128)]  # only the brightness
+    assert commands(port)[3:] == [(7, 3, 1, 5)]  # only the brightness
 
 
 def test_off_darkens_and_on_comes_back():
@@ -64,7 +64,7 @@ def test_off_darkens_and_on_comes_back():
     lights.apply(False, 100, {}, {"IQUNIX MG65/All keys": "#00FF00"})
     assert commands(port)[-1] == (7, 3, 1)  # brightness 0
     lights.apply(True, 100, {}, {"IQUNIX MG65/All keys": "#00FF00"})
-    assert commands(port)[-1] == (7, 3, 1, 255)
+    assert commands(port)[-1] == (7, 3, 1, 9)
 
 
 def test_a_moving_effect_gets_its_speed():

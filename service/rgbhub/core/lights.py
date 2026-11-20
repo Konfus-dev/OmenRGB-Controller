@@ -156,16 +156,19 @@ class Lights:
         hidden_zones: Collection[str] = (),
         gamma: float = 1.0,
         clock: Callable[[], float] = time.monotonic,
+        name: str = "Case lights",
     ):
         """`connect` returns an openrgb.OpenRGBClient, or raises if OpenRGB
-        is not running. `hidden_zones` are zone_key() names that OpenRGB
-        reports but that have no lights attached; they are never shown or
+        is not running. `name` is what the log calls these lights.
+        `hidden_zones` are zone_key() names that OpenRGB reports but that
+        have no lights attached; they are never shown or
         written to."""
         self._connect = connect
         self._hidden = frozenset(hidden_zones)
         self._gamma = gamma  # see scale_colour
         self._glows: dict[str, _Glow] = {}  # device name -> device we draw ourselves
         self._clock = clock
+        self._name = name
         self._retry_at = 0.0  # do not try to connect before this time
         self._client = None
 
@@ -187,12 +190,12 @@ class Lights:
                 _disconnect(client)
                 return False
         except Exception as error:  # the library raises many different types
-            log.debug("Case lights not available: %s", error)
+            log.debug("%s not available: %s", self._name, error)
             if self._clock() - started > SLOW_FAILURE_S:
                 self._retry_at = self._clock() + RETRY_AFTER_SLOW_FAILURE_S
             return False
         self._client = client
-        log.info("Case lights connected, %d device(s)", len(client.devices))
+        log.info("%s connected, %d device(s)", self._name, len(client.devices))
         return True
 
     def check(self) -> bool:
@@ -206,7 +209,7 @@ class Lights:
         try:
             self._client.update()
         except Exception as error:
-            log.warning("Lost connection to the case lights: %s", error)
+            log.warning("Lost connection to the %s: %s", self._name.lower(), error)
             self._drop()
             return False
         return True
@@ -297,7 +300,7 @@ class Lights:
                 if glow.active:
                     self._advance(glow, now)
         except Exception as error:
-            log.warning("Lost connection to the case lights while animating: %s", error)
+            log.warning("Lost connection to the %s while animating: %s", self._name.lower(), error)
             self._drop()
 
     def refresh(self) -> None:
@@ -313,7 +316,7 @@ class Lights:
                 if not glow.active:
                     _send_frame(glow, 1.0)
         except Exception as error:
-            log.warning("Lost connection to the case lights: %s", error)
+            log.warning("Lost connection to the %s: %s", self._name.lower(), error)
             self._drop()
 
     def finish_transitions(self) -> None:
@@ -324,7 +327,7 @@ class Lights:
                     glow.shown, glow.fading = list(glow.target), False
                     _send_frame(glow, 1.0)
         except Exception as error:
-            log.warning("Lost connection to the case lights: %s", error)
+            log.warning("Lost connection to the %s: %s", self._name.lower(), error)
             self._drop()
 
     def _advance(self, glow: _Glow, now: float) -> None:
