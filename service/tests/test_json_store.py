@@ -93,12 +93,16 @@ def test_a_deleted_file_means_defaults(tmp_path):
 
 def test_values_inside_tables_are_checked_too(tmp_path):
     path = tmp_path / "settings.json"
-    path.write_text(json.dumps({
-        "zone-colours": {"RAM/Stick 1": 255},        # fine as a kind of value: a number
-        "device-modes": {"RAM": ["Static"]},         # a list where a name belongs
-        "lcd-recent-images": ["a.png", 3],
-        "device-speeds": {"RAM": 50},
-    }))
+    path.write_text(
+        json.dumps(
+            {
+                "zone-colours": {"RAM/Stick 1": 255},  # fine as a kind of value: a number
+                "device-modes": {"RAM": ["Static"]},  # a list where a name belongs
+                "lcd-recent-images": ["a.png", 3],
+                "device-speeds": {"RAM": 50},
+            }
+        )
+    )
     store = JsonSettings(path)
     assert store.get("device-modes") == {} and store.get("lcd-recent-images") == []
     assert store.get("device-speeds") == {"RAM": 50}

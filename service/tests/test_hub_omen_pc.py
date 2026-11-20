@@ -46,11 +46,29 @@ class Rig:
         raise AttributeError(name)
 
 
-def Service(store, streamer, lights, prepare=None, ram=None, display_names=None, looks=None,
-            fade=None, scheduler=None, watch_file=None, **clocks):
+def Service(
+    store,
+    streamer,
+    lights,
+    prepare=None,
+    ram=None,
+    display_names=None,
+    looks=None,
+    fade=None,
+    scheduler=None,
+    watch_file=None,
+    **clocks,
+):
     kwargs = {"prepare": prepare} if prepare is not None else {}
-    pc = OmenPc(streamer, lights, ram=ram, display_names=display_names, fade=fade,
-                watch_file=watch_file, **kwargs)
+    pc = OmenPc(
+        streamer,
+        lights,
+        ram=ram,
+        display_names=display_names,
+        fade=fade,
+        watch_file=watch_file,
+        **kwargs,
+    )
     return Rig(Hub(store, [pc], looks=looks, scheduler=scheduler, **clocks), pc)
 
 
@@ -64,6 +82,7 @@ def lights_on(settings, on=True):
 
 def brightness(settings, percent):
     settings.set_value("device-brightness", GLib.Variant("a{si}", {"OMEN-PC": percent}))
+
 
 class FakeStreamer:
     def __init__(self):
@@ -844,8 +863,14 @@ class Clocks:
         self.now = 0.0
 
     def make(self, settings, lights):
-        return Service(Store(settings), FakeStreamer(), lights, FakePrepare(),
-                       slept=lambda: self.slept_total, clock=lambda: self.now)
+        return Service(
+            Store(settings),
+            FakeStreamer(),
+            lights,
+            FakePrepare(),
+            slept=lambda: self.slept_total,
+            clock=lambda: self.now,
+        )
 
 
 def test_a_sleep_nobody_announced_is_noticed_and_repaired(settings):

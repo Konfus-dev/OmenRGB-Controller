@@ -47,7 +47,7 @@ def test_a_static_colour_is_sent_once_and_only_changes_after():
     assert lights.try_connect()
     lights.apply(True, 100, {}, {"IQUNIX MG65/All keys": "#FF0000"})
     assert commands(port) == [
-        (7, 3, 2, 1),
+        (7, 3, 2, 6),
         (7, 3, 4, 0, 255),
         (7, 3, 1, 9),
     ]  # effect, colour, brightness
@@ -72,10 +72,8 @@ def test_a_moving_effect_gets_its_speed():
     lights.try_connect()
     from rgbhub.core.lights import EffectOptions
 
-    lights.apply(
-        True, 100, {"IQUNIX MG65": "Effect 7"}, {}, {"IQUNIX MG65": EffectOptions(speed=100)}
-    )
-    assert (7, 3, 2, 7) in commands(port) and (7, 3, 3, 255) in commands(port)
+    lights.apply(True, 100, {"IQUNIX MG65": "Laser"}, {}, {"IQUNIX MG65": EffectOptions(speed=100)})
+    assert (7, 3, 2, 9) in commands(port) and (7, 3, 3, 4) in commands(port)
 
 
 def test_forgetting_sends_everything_again_and_store_saves():

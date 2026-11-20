@@ -76,6 +76,7 @@ class KeyboardModel:
     effects: tuple[tuple[str, int], ...]  # (name, VIA effect number); first is the plain colour
     moving: tuple[str, ...] = ()  # effects that have a speed
     max_brightness: int = 255  # the keyboard's brightest value
+    max_speed: int = 255  # its fastest effect speed
 
 
 @dataclass
@@ -110,7 +111,7 @@ class _Keyboard:
                 name,
                 number,
                 speed_min=0 if name in model.moving else None,
-                speed_max=255 if name in model.moving else None,
+                speed_max=model.max_speed if name in model.moving else None,
             )
             for name, number in model.effects
         ] + [_Mode(OFF_MODE, None, colors=None, color_mode=0)]
