@@ -51,8 +51,8 @@ def find_hidraw(
 class HidPort:
     """An open hidraw node: write(report) and close(). Failures raise OSError."""
 
-    def __init__(self, node: Path):
-        self._fd: int | None = os.open(node, os.O_RDWR)
+    def __init__(self, node: Path, flags: int = 0):
+        self._fd: int | None = os.open(node, os.O_RDWR | flags)
 
     def write(self, report: bytes) -> None:
         if self._fd is None:
@@ -74,11 +74,13 @@ def open_lcd() -> "LcdDevice | None":
     return LcdDevice(node) if node else None
 
 
-class LcdDevice:
+class LcdDevice(HidPort):
     """An open connection to the LCD. All failures raise OSError."""
 
     def __init__(self, path: Path):
-        self._fd: int | None = os.open(path, os.O_RDWR | os.O_NONBLOCK)
+        # Non-blocking: a write the LCD cannot take fails (and the streamer
+        # reconnects) instead of holding up the service.
+        super().__init__(path, os.O_NONBLOCK)
 
     @classmethod
     def from_fd(cls, fd: int) -> "LcdDevice":
@@ -86,16 +88,3 @@ class LcdDevice:
         device = cls.__new__(cls)
         device._fd = fd
         return device
-
-    def write(self, report: bytes) -> None:
-        if self._fd is None:
-            raise OSError("LCD connection is closed")
-        os.write(self._fd, report)
-
-    def close(self) -> None:
-        if self._fd is not None:
-            try:
-                os.close(self._fd)
-            except OSError:
-                pass
-            self._fd = None
