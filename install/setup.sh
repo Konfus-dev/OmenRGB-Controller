@@ -3,7 +3,9 @@
 #
 # One-time system setup for RGB-Hub. Run once with:
 #     sudo bash install/setup.sh
-# It is safe to run again. Apart from the small RAM lighting helper it
+# It is safe to run again. Add --no-apt to leave the installed packages
+# alone (apt-get would also upgrade OpenRGB, which then needs a fresh
+# detector check by install-user.sh). Apart from the small RAM lighting helper it
 # installs, everything in this project runs without root.
 set -euo pipefail
 
@@ -11,6 +13,9 @@ if [[ $EUID -ne 0 ]]; then
     echo "Run this with sudo: sudo bash install/setup.sh" >&2
     exit 1
 fi
+
+apt=yes
+[[ "${1:-}" == --no-apt ]] && apt=no
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(dirname "$here")"
@@ -47,9 +52,11 @@ install -m 0644 "$here/70-rgb-hub.rules" /etc/udev/rules.d/70-rgb-hub.rules
 udevadm control --reload
 udevadm trigger --subsystem-match=hidraw
 
-echo "==> Installing Python venv support and OpenRGB (case lights)"
-apt-get install -y python3-venv python3-pip
-apt-get install -y openrgb || warn "could not install openrgb; case lights will be unavailable"
+if [[ $apt == yes ]]; then
+    echo "==> Installing Python venv support and OpenRGB (case lights)"
+    apt-get install -y python3-venv python3-pip
+    apt-get install -y openrgb || warn "could not install openrgb; case lights will be unavailable"
+fi
 
 echo "==> Loading i2c-dev now and at every boot (OpenRGB expects it)"
 printf 'i2c-dev\n' > /etc/modules-load.d/i2c-dev.conf
@@ -59,7 +66,9 @@ modprobe i2c-dev || warn "could not load i2c-dev"
 
 echo "==> Installing acpi_call, which lets the RAM helper ask the BIOS to set the RAM lights"
 ram_ok=yes
-apt-get install -y acpi-call-dkms || ram_ok=no
+if [[ $apt == yes ]]; then
+    apt-get install -y acpi-call-dkms || ram_ok=no
+fi
 modprobe acpi_call || ram_ok=no
 if [[ $ram_ok == yes ]]; then
     printf 'acpi_call\n' > /etc/modules-load.d/rgbhub-acpi-call.conf
