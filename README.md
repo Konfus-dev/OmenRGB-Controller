@@ -79,7 +79,10 @@ cd RGB-Hub
 sudo bash install/setup.sh
 
 # 2. As yourself: sets up the background service and the extension, and
-#    switches the extension on.
+#    switches the extension on. The first time (and after an OpenRGB
+#    update) it asks before letting OpenRGB do one full hardware scan,
+#    which can stall the RAM sensors until a reboot; type 'scan' to agree,
+#    or add --allow-detector-scan to agree in advance.
 bash install/install-user.sh
 
 # 3. Log out and back in. Only if the button is still missing afterwards:

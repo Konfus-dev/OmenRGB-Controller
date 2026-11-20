@@ -2,9 +2,24 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Per-user install for RGB-Hub. Run WITHOUT sudo:
-#     bash install/install-user.sh
+#     bash install/install-user.sh [--allow-detector-scan]
 # Safe to run again after pulling changes or editing the settings schema.
+#
+# --allow-detector-scan  agree in advance to OpenRGB's one full hardware
+#                        scan, if it is needed (otherwise you are asked;
+#                        see install/openrgb-detector-scan.sh)
 set -euo pipefail
+
+allow_scan=
+for arg in "$@"; do
+    case "$arg" in
+        --allow-detector-scan) allow_scan=--yes ;;
+        *)
+            echo "Usage: bash install/install-user.sh [--allow-detector-scan]" >&2
+            exit 2
+            ;;
+    esac
+done
 
 if [[ $EUID -eq 0 ]]; then
     echo "Do not run this with sudo. Run: bash install/install-user.sh" >&2
@@ -66,11 +81,14 @@ if [[ -e "$orgb/openrgb-program" ]] && ! "$venv/bin/python" -m rgbhub.backends.o
 fi
 if (( known < 100 || rescan )); then
     # OpenRGB only writes down the names of its detectors after one full
-    # hardware scan. Do that scan once, then switch the detectors off.
-    echo "    One-time full hardware scan (takes about 30 seconds)."
-    echo "    RAM temperature sensors may stop reporting until the next reboot."
+    # hardware scan. Do that scan once (only with the owner's say-so), then
+    # switch the detectors off.
     systemctl --user stop openrgb-server.service 2>/dev/null || true
-    timeout 120 openrgb --config "$orgb" --noautoconnect --list-devices >/dev/null 2>&1 || true
+    if ! bash "$repo/install/openrgb-detector-scan.sh" "$orgb" $allow_scan; then
+        echo "ERROR: OpenRGB is not set up, so the case lights stay off. Run this script" >&2
+        echo "       again and type 'scan', or add --allow-detector-scan." >&2
+        exit 1
+    fi
     known="$("$venv/bin/python" -m rgbhub.backends.openrgb "$orgb")"
     if (( known < 100 )); then
         # Starting OpenRGB without that list would let it probe everything,
