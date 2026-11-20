@@ -271,3 +271,26 @@ the one list of keys; the GSettings schema test keeps checking it.
    `github.com/Konfus-dev/OmenRGB-Controller` (sibling
    `OmenRGB-Controller`). Is a local checkout only, until the owner pushes,
    acceptable? What is the new GitHub repo name?
+
+## Decisions on the open questions (2026-11-19)
+
+The owner asked to go ahead with implementing, so these were settled by the
+builder (Claude) and are open to change:
+
+1. **EmuBox menu: fixed device list** (OMEN-PC, IQUNIX-KEYBOARD), not built
+   from status.
+2. **Breathing in the Default**: the case board's Breathing is drawn by the
+   hub, so on stop those lights are left in Static with the Default colours.
+   The RAM and the keyboard run their own effects, which they keep.
+3. **"Load"** makes the Default the current settings (it does not switch
+   auto off). Start-up shows the normal settings / auto look straight away;
+   the LCD shows the OMEN logo until the hub runs.
+4. **MacWinBuntu updated** (repo name, dconf path, extension id).
+5. **No hub-drawn animation on the keyboard**, whatever the firmware does
+   with sets: only changed values are sent, on change. Whether a set
+   survives an unplug is still to be seen on the hardware.
+6. **GitHub name `RGB-Hub`**; until the owner renames the GitHub repo and
+   pushes, EmuBox installs from the local checkout.
+
+Also decided: the first Default is the look the owner had when the old
+settings were carried over; the master auto switch is not stored.
