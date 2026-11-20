@@ -68,3 +68,15 @@ def test_gsettings_schema_matches_the_list_of_settings(settings):
     assert sorted(schema.list_keys()) == sorted(DEFAULTS)
     for key, default in DEFAULTS.items():
         assert settings.get_default_value(key).unpack() == default, key
+
+
+def test_table_value_kinds_match_the_gsettings_schema(settings):
+    # The JSON store checks table entries against TABLE_VALUES; GSettings
+    # checks them against its schema. Both must agree.
+    from rgbhub.core.settings_schema import DEFAULTS, TABLE_VALUES
+
+    letters = {bool: "b", int: "i", str: "s"}
+    tables = {key for key, default in DEFAULTS.items() if isinstance(default, dict)}
+    assert set(TABLE_VALUES) == tables
+    for key, kind in TABLE_VALUES.items():
+        assert settings.get_value(key).get_type_string() == "a{s" + letters[kind] + "}", key

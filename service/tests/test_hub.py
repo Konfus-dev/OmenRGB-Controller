@@ -189,6 +189,10 @@ def test_a_damaged_default_is_ignored():
     assert parse_default('{"lcd-brightness": "loud", "lcd-fit": "fit", "x": 1}') == {
         "lcd-fit": "fit"
     }
+    # Inside tables too: a number where a colour belongs would break the lights.
+    assert parse_default('{"zone-colours": {"RAM/Stick 1": 255}, "device-speeds": {"RAM": 9}}') == {
+        "device-speeds": {"RAM": 9}
+    }
 
 
 def test_batocera_moves_the_old_folder_and_settings(tmp_path):

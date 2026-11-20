@@ -35,7 +35,7 @@ DEFAULTS: dict[str, bool | int | str | list | dict] = {
     "auto-devices": {},  # device id -> follows what is in focus (missing = no)
     "auto-lights": True,  # OMEN-PC: its lights follow
     "auto-lcd": True,  # OMEN-PC: its LCD shows what is in focus
-    "auto-idle-image": "",  # shown when nothing is in focus; empty = OS logo
+    "auto-idle-image": "",  # shown when nothing is in focus; empty = the system's own idle picture
     "auto-idle-colour": "",  # "#RRGGBB"; empty = taken from the idle picture
     "focused-app": "",  # written by the front end: what is in focus now
     # The Default look, shown on every device when the hub stops
@@ -44,6 +44,21 @@ DEFAULTS: dict[str, bool | int | str | list | dict] = {
     "default-action": "",
     # Written by the hub only: a JSON report for the front end
     "status": "{}",
+}
+
+# What the entries of each table setting hold (their keys are always names).
+# A colour where a number belongs, or the other way round, would trip up the
+# code that uses it, so stores that cannot enforce types themselves (a JSON
+# file) check against this.
+TABLE_VALUES: dict[str, type] = {
+    "device-enabled": bool,
+    "device-brightness": int,
+    "device-modes": str,
+    "zone-colours": str,
+    "device-speeds": int,
+    "device-min-brightness": int,
+    "device-max-brightness": int,
+    "auto-devices": bool,
 }
 
 # The hub's devices, in the order front ends show them. A front end lists
@@ -66,6 +81,22 @@ DEFAULT_KEYS = (
 )
 
 
+def valid(key: str, value: Any, default: Any = None) -> bool:
+    """Is `value` the right kind of value for setting `key`? Looks inside
+    lists and tables too. `default` stands in for the standard default where
+    a platform has its own (of the same kind)."""
+    default = DEFAULTS[key] if default is None else default
+    # type(...) is, not isinstance: true and false must not pass as numbers.
+    if type(value) is not type(default):
+        return False
+    if isinstance(value, dict):
+        kind = TABLE_VALUES.get(key, str)
+        return all(isinstance(k, str) and type(v) is kind for k, v in value.items())
+    if isinstance(value, list):
+        return all(isinstance(item, str) for item in value)
+    return True
+
+
 def parse_default(text: str) -> dict[str, Any]:
     """The saved Default as a table, keeping only known keys of the right kind."""
     try:
@@ -74,11 +105,7 @@ def parse_default(text: str) -> dict[str, Any]:
         return {}
     if not isinstance(data, dict):
         return {}
-    return {
-        key: value
-        for key, value in data.items()
-        if key in DEFAULT_KEYS and type(value) is type(DEFAULTS[key])
-    }
+    return {key: value for key, value in data.items() if key in DEFAULT_KEYS and valid(key, value)}
 
 
 # Settings from before RGB-Hub (OmenRGB-Controller) and where they went.

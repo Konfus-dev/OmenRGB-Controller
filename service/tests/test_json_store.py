@@ -96,16 +96,22 @@ def test_values_inside_tables_are_checked_too(tmp_path):
     path.write_text(
         json.dumps(
             {
-                "zone-colours": {"RAM/Stick 1": 255},  # fine as a kind of value: a number
+                "zone-colours": {"RAM/Stick 1": 255},  # a number where a colour belongs
                 "device-modes": {"RAM": ["Static"]},  # a list where a name belongs
+                "device-brightness": {"OMEN-PC": "loud"},  # text where a number belongs
+                "device-enabled": {"OMEN-PC": 1},  # a number where on/off belongs
+                "auto-devices": {"OMEN-PC": False},
                 "lcd-recent-images": ["a.png", 3],
                 "device-speeds": {"RAM": 50},
             }
         )
     )
     store = JsonSettings(path)
-    assert store.get("device-modes") == {} and store.get("lcd-recent-images") == []
+    for key in ("zone-colours", "device-modes", "device-brightness", "device-enabled"):
+        assert store.get(key) == {}, key
+    assert store.get("lcd-recent-images") == []
     assert store.get("device-speeds") == {"RAM": 50}
+    assert store.get("auto-devices") == {"OMEN-PC": False}
 
 
 def test_problems_are_reported_once_per_version_of_the_file(tmp_path, caplog):

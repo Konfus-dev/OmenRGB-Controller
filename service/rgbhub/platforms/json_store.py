@@ -20,27 +20,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from ..core.settings_schema import DEFAULTS
+from ..core.settings_schema import DEFAULTS, valid
 
 log = logging.getLogger(__name__)
 
 # These change all the time and are not the owner's choices, so they live in
 # memory only and never touch the disk.
 VOLATILE = ("status", "focused-app")
-
-
-def _same_kind(value: Any, default: Any) -> bool:
-    """Is `value` the kind of thing `default` is? Looks inside lists and
-    name -> value tables too, since a number where a colour should be would
-    trip up the code that uses it."""
-    if type(value) is not type(default):
-        return False
-    if isinstance(value, dict):
-        # name -> text, number or on/off
-        return all(isinstance(k, str) and isinstance(v, (str, int)) for k, v in value.items())
-    if isinstance(value, list):
-        return all(isinstance(item, str) for item in value)
-    return True
 
 
 class JsonSettings:
@@ -130,7 +116,7 @@ class JsonSettings:
             if key not in self._defaults:
                 self._warn("unknown setting '%s' ignored (check the spelling)", key)
                 continue
-            if not _same_kind(value, self._defaults[key]):
+            if not valid(key, value, self._defaults[key]):
                 self._warn("'%s' ignored: wrong kind of value", key)
                 continue
             good[key] = value
