@@ -78,10 +78,11 @@ cd RGB-Hub
 #    It is short; read it first.
 sudo bash install/setup.sh
 
-# 2. As yourself: sets up the background service and the extension.
+# 2. As yourself: sets up the background service and the extension, and
+#    switches the extension on.
 bash install/install-user.sh
 
-# 3. Log out and back in, then:
+# 3. Log out and back in. Only if the button is still missing afterwards:
 gnome-extensions enable rgbhub@konfus-dev.github.io
 ```
 
