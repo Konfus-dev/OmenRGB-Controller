@@ -100,3 +100,10 @@ def test_the_keyboard_is_found_by_its_via_interface(tmp_path):
     client = via.opener(MG65, sys_root, dev_root)()
     assert client._node == dev_root / "hidraw4"
     client.disconnect()
+
+
+def test_a_pale_colour_is_made_more_vivid_but_keeps_its_hue():
+    plain = via.colour_to_hsv(255, 177, 44)  # an orange
+    vivid = via.colour_to_hsv(255, 177, 44, saturation_curve=2.2)
+    assert vivid[0] == plain[0] and vivid[2] == plain[2] and vivid[1] > plain[1]
+    assert via.colour_to_hsv(255, 0, 0, 2.2) == (0, 255, 255)

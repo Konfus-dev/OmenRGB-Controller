@@ -61,9 +61,17 @@ def _report(*payload: int) -> bytes:
     return b"\x00" + body + bytes(REPORT_LEN - len(body))  # report id 0 first
 
 
-def colour_to_hsv(red: int, green: int, blue: int) -> tuple[int, int, int]:
-    """0..255 RGB as the keyboard's hue, saturation and brightness (0..255)."""
+def colour_to_hsv(
+    red: int, green: int, blue: int, saturation_curve: float = 1.0
+) -> tuple[int, int, int]:
+    """0..255 RGB as the keyboard's hue, saturation and brightness (0..255).
+
+    `saturation_curve` above 1 makes colours more vivid without moving
+    their hue: LEDs show a slightly pale colour as a washed-out one (a pale
+    orange looks pink), and 1 leaves it as it is.
+    """
     hue, sat, val = colorsys.rgb_to_hsv(red / 255, green / 255, blue / 255)
+    sat = 1 - (1 - sat) ** saturation_curve
     return round(hue * 255) % 256, round(sat * 255), round(val * 255)
 
 
@@ -77,6 +85,7 @@ class KeyboardModel:
     moving: tuple[str, ...] = ()  # effects that have a speed
     max_brightness: int = 255  # the keyboard's brightest value
     max_speed: int = 255  # its fastest effect speed
+    saturation_curve: float = 1.0  # see colour_to_hsv
 
 
 @dataclass
@@ -123,7 +132,7 @@ class _Keyboard:
             self._set(VALUE_BRIGHTNESS, 0)
             return
         red, green, blue = (int(part) for part in tuple(mode.colors[0])[:3])
-        hue, sat, val = colour_to_hsv(red, green, blue)
+        hue, sat, val = colour_to_hsv(red, green, blue, self._model.saturation_curve)
         self._set(VALUE_EFFECT, mode.number)
         self._set(VALUE_COLOUR, hue, sat)
         if mode.speed_min is not None:

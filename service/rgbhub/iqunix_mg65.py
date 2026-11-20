@@ -47,6 +47,9 @@ MG65 = KeyboardModel(
     moving=tuple(name for name, _ in EFFECTS[1:]),
     max_brightness=9,  # its brightness runs 0..9 (higher values read back as 9)
     max_speed=4,  # effect speed 0..4
+    # Its LEDs wash out colours that are not fully vivid: an orange came out
+    # pinkish. This makes them more vivid without moving their hue.
+    saturation_curve=2.2,
 )
 
 DISPLAY_NAMES = {
