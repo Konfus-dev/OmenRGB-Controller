@@ -40,6 +40,16 @@ log = logging.getLogger(__name__)
 
 EXTENSION_UUID = "rgbhub@konfus-dev.github.io"
 
+# The extension reports the focused app as soon as it is loaded and auto
+# mode is on. Silence for this long after start means it is most likely not
+# loaded (it was left off twice: after the first install and after a rename).
+FOCUS_REPORT_WAIT_S = 180
+FOCUS_REPORT_HINT = (
+    f"Is the GNOME Shell extension switched on? Check with: gnome-extensions info "
+    f"{EXTENSION_UUID} (State should be ACTIVE); if not: gnome-extensions enable "
+    f"{EXTENSION_UUID}, or run install/install-user.sh again, then log out and back in."
+)
+
 # Auto mode leaves the normal look alone while one of these apps has focus.
 # The first is the window GNOME shows this project's settings in, so that
 # you see the colours you are choosing while you choose them.
@@ -123,6 +133,8 @@ def main(argv: list[str] | None = None) -> int:
         ],
         looks=looks,
         scheduler=glib_runtime.GLibScheduler(),
+        focus_report_wait_s=FOCUS_REPORT_WAIT_S,
+        focus_report_hint=FOCUS_REPORT_HINT,
     )
     hub.start()
 

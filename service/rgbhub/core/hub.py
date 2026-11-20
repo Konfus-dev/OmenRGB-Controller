@@ -55,11 +55,18 @@ class Hub:
         scheduler: Scheduler | None = None,
         slept: Callable[[], float] = suspended_seconds,
         clock: Callable[[], float] = time.monotonic,
+        focus_report_wait_s: float | None = None,
+        focus_report_hint: str = "",
     ):
         """settings  where the front end's choices live (interfaces.Settings)
         devices   the devices, each fitting device.Device
         looks     auto mode's source of looks, or None for no auto mode
         scheduler runs our timers (interfaces.Scheduler)
+        focus_report_wait_s  where a front end reports what is in focus (the
+                  GNOME extension): warn if auto mode is on and no report has
+                  come this long after start, or after auto mode was switched
+                  on. The front end is then most likely not running.
+        focus_report_hint    what to do about it, added to that warning
         """
         self.scheduler: Scheduler = scheduler or ManualScheduler()
         self._settings = settings
@@ -75,6 +82,10 @@ class Hub:
         self._asleep_since = 0.0
         self._timers: list = []
         self._started = False
+        self._focus_report_wait_s = focus_report_wait_s
+        self._focus_report_hint = focus_report_hint
+        self._focus_reported = False  # a front end has written "focused-app"
+        self._focus_watch = None  # the timer that warns if it never does
         for device in self.devices:
             device.attach(self)
 
@@ -121,12 +132,14 @@ class Hub:
         self._timers = [
             self.scheduler.every(c.RECONNECT_INTERVAL_S * 1000, lambda: self.repeat(self.tick_slow))
         ]
+        self._watch_for_focus_reports()
 
     def stop(self, show_default: bool = True) -> None:
         """Stop, leaving every device showing the Default look."""
         for timer in self._timers:
             self.scheduler.cancel(timer)
         self._timers = []
+        self._stop_focus_watch()
         if not self._started:
             return
         self._started = False
@@ -157,6 +170,11 @@ class Hub:
         if key == "default-action":
             self._default_action()
             return
+        if key == "focused-app":
+            self._focus_reported = True
+            self._stop_focus_watch()
+        elif key == "auto-devices":
+            self._watch_for_focus_reports()
         if key in AUTO_KEYS:
             self._refresh_look()
             for device in self.devices:
@@ -227,6 +245,43 @@ class Hub:
         if self._looks:
             self._looks.forget_idle()
         self.on_changed("auto-idle-image")
+
+    # --- is anyone reporting what is in focus? ----------------------------------
+
+    def _watch_for_focus_reports(self) -> None:
+        """Start the wait for a first focus report, if one is due.
+
+        Auto mode silently does nothing when the front end that reports the
+        focused app is not running (an extension GNOME never switched on);
+        this makes that show up in the log.
+        """
+        if (
+            self._focus_report_wait_s is None
+            or self._focus_reported
+            or self._focus_watch is not None
+            or not self._started
+            or not self.auto_wanted
+        ):
+            return
+        self._focus_watch = self.scheduler.every(
+            round(self._focus_report_wait_s * 1000), self._focus_report_overdue
+        )
+
+    def _stop_focus_watch(self) -> None:
+        if self._focus_watch is not None:
+            self.scheduler.cancel(self._focus_watch)
+            self._focus_watch = None
+
+    def _focus_report_overdue(self) -> bool:
+        self._focus_watch = None
+        if self._started and not self._focus_reported and self.auto_wanted:
+            log.warning(
+                "Auto mode is on, but in %.0f s nothing has reported which app is in focus, "
+                "so auto mode cannot follow it. %s",
+                self._focus_report_wait_s,
+                self._focus_report_hint,
+            )
+        return False  # once is enough
 
     # --- sleep and wake ------------------------------------------------------
 

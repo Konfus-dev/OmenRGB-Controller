@@ -230,3 +230,108 @@ def test_gnome_reads_the_old_dconf_dump():
         "device-speeds": {"RAM": 35},
         "lcd-image": "/a b.jpg",
     }
+
+
+# --- a front end that never reports the focused app is noticed -----------------
+
+
+def watched_hub(auto=True, **values):
+    from rgbhub.core.interfaces import ManualScheduler
+
+    settings = MemorySettings(**{"auto-devices": {"IQUNIX-KEYBOARD": auto}}, **values)
+    scheduler = ManualScheduler()
+    hub = Hub(
+        settings,
+        [IqunixKeyboard(FakeLights())],
+        looks=FakeLooks(),
+        scheduler=scheduler,
+        focus_report_wait_s=180,
+        focus_report_hint="Is the extension switched on?",
+    )
+    return hub, settings, scheduler
+
+
+def focus_watches(scheduler):
+    return [callback for ms, callback in scheduler.timers.values() if ms == 180_000]
+
+
+def run_out_the_wait(scheduler):
+    for handle, (ms, callback) in list(scheduler.timers.items()):
+        if ms == 180_000 and callback() is False:
+            scheduler.cancel(handle)  # as GLib does with a timer that returns False
+
+
+def test_no_focus_report_after_start_is_warned_about(caplog):
+    hub, _settings, scheduler = watched_hub()
+    hub.start()
+    assert len(focus_watches(scheduler)) == 1
+    run_out_the_wait(scheduler)
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "focus" in warnings[0].getMessage()
+    assert "Is the extension switched on?" in warnings[0].getMessage()
+    assert focus_watches(scheduler) == []  # once only
+    hub.stop(show_default=False)
+
+
+def test_a_focus_report_in_time_means_no_warning(caplog):
+    hub, settings, scheduler = watched_hub()
+    hub.start()
+    settings.set("focused-app", "org.gnome.Terminal.desktop")
+    assert focus_watches(scheduler) == []
+    run_out_the_wait(scheduler)
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+    hub.stop(show_default=False)
+
+
+def test_an_empty_report_counts_too(caplog):
+    # "Nothing in focus" is a report: the extension is there.
+    hub, settings, scheduler = watched_hub(**{"focused-app": "x.desktop"})
+    hub.start()
+    settings.set("focused-app", "")
+    run_out_the_wait(scheduler)
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
+def test_no_wait_while_auto_mode_is_off_then_one_when_it_comes_on(caplog):
+    # The extension writes nothing while no device follows the app.
+    hub, settings, scheduler = watched_hub(auto=False)
+    hub.start()
+    assert focus_watches(scheduler) == []
+    settings.set("auto-devices", {"IQUNIX-KEYBOARD": True})
+    assert len(focus_watches(scheduler)) == 1
+    settings.set("auto-devices", {"IQUNIX-KEYBOARD": True, "OMEN-PC": True})
+    assert len(focus_watches(scheduler)) == 1  # not a second one
+    run_out_the_wait(scheduler)
+    assert len([r for r in caplog.records if r.levelname == "WARNING"]) == 1
+
+
+def test_auto_switched_off_meanwhile_means_no_warning(caplog):
+    hub, settings, scheduler = watched_hub()
+    hub.start()
+    settings.set("auto-devices", {"IQUNIX-KEYBOARD": False})
+    run_out_the_wait(scheduler)
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
+def test_stopping_ends_the_wait():
+    hub, _settings, scheduler = watched_hub()
+    hub.start()
+    hub.stop(show_default=False)
+    assert focus_watches(scheduler) == []
+
+
+def test_without_a_wait_given_nothing_is_watched():
+    hub, _settings, _lights, _ = keyboard_hub(**{"auto-devices": {"IQUNIX-KEYBOARD": True}})
+    hub.start()
+    assert focus_watches(hub.scheduler) == []
+
+
+def test_gnome_waits_for_its_extension():
+    from rgbhub.platforms import gnome
+
+    assert 30 <= gnome.FOCUS_REPORT_WAIT_S <= 600
+    assert f"gnome-extensions enable {gnome.EXTENSION_UUID}" in gnome.FOCUS_REPORT_HINT
+    source = __import__("inspect").getsource(gnome.main)
+    assert "focus_report_wait_s=FOCUS_REPORT_WAIT_S" in source
+    assert "focus_report_hint=FOCUS_REPORT_HINT" in source
