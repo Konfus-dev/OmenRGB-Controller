@@ -101,9 +101,19 @@ systemctl --user stop rgbhub.service
 systemctl --user restart openrgb-server.service || true
 systemctl --user start rgbhub.service
 
+# Switch the extension on. `gnome-extensions enable` only works once GNOME
+# Shell has loaded the extension (after a log-in), so also put it on the
+# list of enabled extensions directly; GNOME reads that list at log-in.
 gnome-extensions enable "$uuid" 2>/dev/null || true
+enabled="$(gsettings get org.gnome.shell enabled-extensions)"
+if [[ "$enabled" != *"'$uuid'"* ]]; then
+    if [[ "$enabled" == *"[]"* ]]; then
+        gsettings set org.gnome.shell enabled-extensions "['$uuid']"
+    else
+        gsettings set org.gnome.shell enabled-extensions "${enabled%]}, '$uuid']"
+    fi
+fi
 
 echo
 echo "Done. If this is the first install (or the first since the rename"
-echo "from OmenRGB-Controller): log out and back in once, then run"
-echo "    gnome-extensions enable $uuid"
+echo "from OmenRGB-Controller): log out and back in once for the menu button."
