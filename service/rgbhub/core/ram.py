@@ -319,8 +319,12 @@ class RamLights:
             ]
         if not changes:
             return True  # nothing changed; do not bother the BIOS
-        begin = [(stick, REG_TRANSFER, TRANSFER_BEGIN) for stick in self._sticks]
-        end = [(stick, REG_TRANSFER, TRANSFER_END) for stick in self._sticks]
+        # The sticks this request was made for: on the worker thread,
+        # self._sticks may have been emptied by a disconnect meanwhile, which
+        # would send the writes without their begin and end.
+        sticks = list(dict.fromkeys(stick for stick, _register, _value in wanted))
+        begin = [(stick, REG_TRANSFER, TRANSFER_BEGIN) for stick in sticks]
+        end = [(stick, REG_TRANSFER, TRANSFER_END) for stick in sticks]
         try:
             self._send(begin + changes + end)
         except OSError as error:

@@ -328,6 +328,32 @@ def test_background_sending_does_not_hold_up_the_caller_and_latest_wins():
     assert (LEFT, 0x33, 255) in sent[-1] and (LEFT, 0x31, 0) in sent[-1]
 
 
+def test_a_request_still_queued_at_a_disconnect_keeps_its_begin_and_end():
+    import threading
+
+    started, release = threading.Event(), threading.Event()
+    sent = []
+
+    def slow_send(batch):
+        if batch:
+            started.set()
+            release.wait(5)
+            sent.append(batch)
+
+    ram = RamLights(slow_send, lambda: [LEFT], background=True, clock=lambda: NOW[0])
+    ram.try_connect()
+    ram.apply(True, 100, {"RAM": "Static"}, {"RAM/Stick 1": "#FF0000"})
+    assert started.wait(5)
+    ram.apply(True, 100, {"RAM": "Static"}, {"RAM/Stick 1": "#00FF00"})  # queued
+    ram._failed = True  # as if a send had failed: the main thread disconnects
+    assert ram.check() is False
+    release.set()
+    assert ram.wait_idle(5) is True
+    assert len(sent) == 2
+    for batch in sent:
+        assert batch[0] == (LEFT, 0x08, BEGIN) and batch[-1] == (LEFT, 0x08, END)
+
+
 def test_background_failure_is_noticed_by_check():
     def failing_send(batch):
         if batch:
