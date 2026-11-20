@@ -17,7 +17,8 @@ new detectors could probe the RAM after all. The config is therefore tied to
 the OpenRGB program it was made with:
 
     ... --record-program <config folder>   remember the installed OpenRGB (the installer does this)
-    ... --check-program <config folder>    fail if OpenRGB has changed since (run before each start)
+    ... --check-program <config folder>    fail if OpenRGB has changed since, or the
+                                           config has lost its detector list (run before each start)
 """
 
 import copy
@@ -37,6 +38,12 @@ DETECTORS = ("HP Omen 30L",)
 
 CONFIG_FILE = "OpenRGB.json"
 PROGRAM_STAMP = "openrgb-program"
+
+# OpenRGB 0.9 has a few hundred detectors. A config naming fewer than this
+# has lost its list (never made, deleted, or rebuilt after it was corrupted),
+# and OpenRGB would run every detector missing from it: a full scan, RAM
+# included. install/install-user.sh uses the same number.
+MIN_KNOWN_DETECTORS = 100
 
 
 def connect():
@@ -111,15 +118,44 @@ def program_unchanged(folder: Path, program: str | None = None) -> bool:
         return False  # never recorded: the installer has not finished
 
 
+def _detectors(folder: Path) -> dict:
+    """The config's detector table in `folder`: name -> switched on."""
+    detectors = _read(folder / CONFIG_FILE).get("Detectors", {}).get("detectors", {})
+    return detectors if isinstance(detectors, dict) else {}
+
+
+def why_unsafe_to_start(folder: Path, program: str | None = None) -> str | None:
+    """None if OpenRGB may be started with the config in `folder`; else why not.
+
+    Starting it in any other state would let it run detectors that are not
+    switched off, which probes the RAM and jams its bus.
+    """
+    if not program_unchanged(folder, program):
+        return (
+            "OpenRGB has been updated since RGB Hub was set up (or set-up never finished). "
+            "Not starting it: a new version may probe the RAM. "
+            "Run install/install-user.sh again to re-check it."
+        )
+    detectors = _detectors(folder)
+    if len(detectors) < MIN_KNOWN_DETECTORS:
+        return (
+            f"OpenRGB's config in {folder} names only {len(detectors)} detectors; its list "
+            "is lost. Not starting it: it would probe all other hardware, RAM included. "
+            "Run install/install-user.sh again to rebuild the list."
+        )
+    extra = sorted(name for name, on in detectors.items() if on and name not in DETECTORS)
+    if extra:
+        return f"OpenRGB's config in {folder} has other detectors on ({extra}). Not starting it."
+    return None
+
+
 if __name__ == "__main__":
     if sys.argv[1] == "--record-program":
         record_program(Path(sys.argv[2]))
     elif sys.argv[1] == "--check-program":
-        if not program_unchanged(Path(sys.argv[2])):
-            sys.exit(
-                "OpenRGB has been updated since RGB Hub was set up. Not starting it: a new "
-                "version may probe the RAM. Run install/install-user.sh again to re-check it."
-            )
+        reason = why_unsafe_to_start(Path(sys.argv[2]))
+        if reason:
+            sys.exit(reason)
     else:
         known = write_config(Path(sys.argv[1]), DETECTORS, [Path(p) for p in sys.argv[2:]])
         print(known)
