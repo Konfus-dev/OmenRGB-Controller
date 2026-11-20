@@ -5,10 +5,14 @@ using it, see the [README](../README.md).
 
 ## Goals
 
+- One program for every lit device ("hub"), each device behind the same
+  small interface, so a new device is one more module.
 - Put the owner's own images on the cooler LCD and keep them there.
-- Set colour, effect and brightness for the case lights and the RAM sticks.
+- Set colour, effect and brightness for the case lights, the RAM sticks and
+  the keyboard.
 - One place for all of it: a button in the GNOME system menu that opens a
-  settings window.
+  settings window with an Auto tab and a tab per device.
+- When the hub stops, leave every device showing the owner's Default look.
 - Settings return by themselves after a reboot.
 - Easy to change later: one job per file, hardware numbers in one place,
   existing tools reused wherever one does the job.
@@ -20,31 +24,42 @@ using it, see the [README](../README.md).
 - Talk to the RAM sticks over SMBus. On this board that jams the RAM's
   control bus until the next reboot (see "RAM lights" below).
 - Run day-to-day code as root, apart from one small, single-purpose helper.
+- Send the keyboard anything beyond three standard VIA commands (below).
+  No firmware, no keymap writes, no vendor commands.
 
 ## Layers
 
 ```
- front ends                 platforms                 core                  backends
- (what you touch)           (one per system)          (the behaviour)       (hardware)
+ front ends                 platforms             core                      devices / backends
+ (what you touch)           (one per system)      (the behaviour)           (hardware)
 
  GNOME Shell extension --+
                          +-> gnome.py -----+
-                                           +--> Service ---> LcdStreamer -> hidraw.py    -> cooler LCD
- Batocera service switch +                 |      |-------> Lights ------> openrgb.py   -> case lights
- and game hook ----------+-> batocera.py --+      |                  \---> tracer.py    -> case lights
-                                                  \-------> RamLights ---> ram_bios.py  -> BIOS -> RAM
+                                           +--> Hub --> OmenPc ---------> LcdStreamer -> hidraw.py   -> cooler LCD
+ Batocera service switch +                 |     |        |------------> Lights ------> openrgb.py  -> case lights
+ and game hook ----------+-> batocera.py --+     |        |                        \---> tracer.py   -> case lights
+                                                 |        \------------> RamLights ---> ram_bios.py -> BIOS -> RAM
+                                                 \----> IqunixKeyboard -> Lights ------> via.py      -> keyboard
 ```
 
-- **core** (`service/rgbhub/core/`) decides what the LCD and lights
-  should show. It imports no operating-system or hardware-library modules.
-  Everything it needs is handed to `Service`: settings, a scheduler, the
-  objects that reach hardware. `interfaces.py` describes those shapes.
+- **core** (`service/rgbhub/core/`) decides what each device should show.
+  It imports no operating-system or hardware-library modules. The `Hub`
+  (`hub.py`) owns the settings, auto mode, sleep and wake, the status
+  report and the Default look; it tells each device what happened through
+  the calls in `device.py`. `light_group.py` is the lights logic devices
+  share (batching, fades and breathing, reconnecting). Everything is handed
+  in: settings, a scheduler, the objects that reach hardware.
+  `interfaces.py` describes those shapes.
+- **devices** (`service/rgbhub/devices/`) are one module per product:
+  `omen_pc.py` (LCD, case lights, RAM) and `iqunix_keyboard.py`. A device
+  reads settings only through the hub (`hub.get`), which is what lets the
+  hub show the Default look on the way out.
 - **backends** (`service/rgbhub/backends/`) each reach one kind of
   hardware one way.
 - **platforms** (`service/rgbhub/platforms/`) are the only place that
   knows about a particular system. Each has a `main()` that picks backends,
   a settings store, timers, and a source for "what is in focus", and builds
-  the `Service` from them.
+  the `Hub` and its devices from them.
 - **front ends** (`frontends/`) never touch hardware. A front end writes
   the settings listed in `core/settings_schema.py` and reads the `status`
   report; that list is the whole contract.
@@ -202,3 +217,61 @@ zones, effects and display names).
 
 OMEN by HP 45L GT22-3xxx (board 8D2C), Ubuntu 26.04, GNOME Shell 50,
 OpenRGB 0.9, LCD firmware V3.05.024.
+
+## Devices and their settings
+
+Settings that belong to a whole device are tables keyed by the device's id
+(`OMEN-PC`, `IQUNIX-KEYBOARD`): `device-enabled`, `device-brightness` and
+`auto-devices`. Lighting settings (`device-modes`, `zone-colours`, speeds,
+pulse range) stay keyed by the lighting device inside it (`HP Omen 30L`,
+`RAM`, `IQUNIX MG65`). There is no stored "auto for everything" switch:
+front ends show it as on when every device follows, and flipping it sets
+them all.
+
+Settings from OmenRGB-Controller are carried over on first start
+(`settings_schema.migrate`; on GNOME read from the old dconf folder with
+`dconf dump`, on Batocera by moving the old folder), and the look the owner
+had then becomes the first Default.
+
+## IQUNIX keyboard
+
+USB `320f:5055`, IQUNIX MG65. Its interface with usage page `0xFF60`,
+usage `0x61` is VIA's raw HID (32-byte reports). It answers VIA protocol
+11 and keeps its lights on the "RGB matrix" channel (3). `backends/via.py`
+sends only:
+
+| Command | Meaning |
+|---|---|
+| `0x07` custom set value | channel 3: brightness (1), effect (2), speed (3), colour as hue + saturation (4) |
+| `0x08` custom get value | read one back (only used by hand so far) |
+| `0x09` custom save | store the live look in the keyboard |
+
+A set changes only what is shown; a save makes the keyboard keep it with
+no program running. Saves are sent only when the hub stops. Only values
+that changed are sent, and the hub draws nothing frame by frame on the
+keyboard (no fades, no hub-drawn breathing): the keyboard's own effects do
+the moving. The names of its effect numbers are not known yet, so they are
+listed as "Effect N" in `iqunix_mg65.py` until they are seen.
+
+On GNOME a udev rule (`install/70-rgb-hub.rules`) gives the logged-in user
+the lighting interface only, not the ones that carry keystrokes.
+
+## The Default look
+
+`default-look` holds a copy of the look settings (`DEFAULT_KEYS`). Front
+ends ask for "save" (current look -> Default) or "load" (Default -> current)
+by writing `default-action`; the hub does it and clears the request.
+
+When the hub stops cleanly it sets `hub.stopping`, from which point
+`hub.get` answers from the Default and auto mode is off. Each device then
+shows that at once (no fades; the RAM is waited for) and keeps it where the
+hardware can: the keyboard saves it, the case board stays in direct mode
+with the colours until it loses power. Breathing that the hub draws itself
+would freeze mid-breath, so those lights are left steady instead. The LCD
+forgets its picture as soon as frames stop, so it is left alone.
+
+The stop paths are SIGTERM from systemd (log-out, shutdown, reboot) and the
+Batocera service's `stop`, which waits up to 10 s for the program to finish.
+At shutdown on GNOME the root RAM helper is ordered to stop after the
+user's session (`Before=user@UID.service`), so it is still there to deliver
+the RAM's part.

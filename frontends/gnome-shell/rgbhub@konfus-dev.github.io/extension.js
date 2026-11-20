@@ -3,7 +3,7 @@
 // The "RGB Hub" button in the top-right system menu.
 //
 // Pressing it opens the settings window (prefs.js), where everything is
-// changed. The background service (service/rgbhub) then does the real work,
+// changed. The background hub (service/rgbhub) then does the real work,
 // so nothing in here can slow down or freeze the desktop.
 //
 // For auto mode this file also tells the service which app has focus, by
@@ -36,8 +36,8 @@ function findSettingsWindow(title) {
              window.get_wm_class() === PREFS_APP_ID)) ?? null;
 }
 
-const OmenButton = GObject.registerClass(
-class OmenButton extends QuickToggle {
+const HubButton = GObject.registerClass(
+class HubButton extends QuickToggle {
     _init(extension) {
         // toggleMode: false makes it a plain button, not an on/off switch.
         super._init({title: 'RGB Hub', iconName: ICON, toggleMode: false});
@@ -55,11 +55,11 @@ class OmenButton extends QuickToggle {
     }
 });
 
-const OmenIndicator = GObject.registerClass(
-class OmenIndicator extends SystemIndicator {
+const HubIndicator = GObject.registerClass(
+class HubIndicator extends SystemIndicator {
     _init(extension) {
         super._init();
-        this.quickSettingsItems.push(new OmenButton(extension));
+        this.quickSettingsItems.push(new HubButton(extension));
     }
 
     destroy() {
@@ -68,9 +68,9 @@ class OmenIndicator extends SystemIndicator {
     }
 });
 
-export default class OmenLightsExtension extends Extension {
+export default class RgbHubExtension extends Extension {
     enable() {
-        this._indicator = new OmenIndicator(this);
+        this._indicator = new HubIndicator(this);
         Main.panel.statusArea.quickSettings.addExternalIndicator(this._indicator);
 
         // Auto mode is an extra: if it cannot start, the button still works.
@@ -94,7 +94,7 @@ export default class OmenLightsExtension extends Extension {
         this._tracker = Shell.WindowTracker.get_default();
         this._focusId = this._tracker.connect('notify::focus-app', () => this._publishFocus());
         // Report straight away when auto mode is switched on.
-        this._autoId = this._settings.connect('changed::auto-enabled', () => this._publishFocus());
+        this._autoId = this._settings.connect('changed::auto-devices', () => this._publishFocus());
         // Forget whatever app the last session ended on, then report afresh.
         this._settings.set_string('focused-app', '');
         this._publishFocus();
@@ -119,8 +119,9 @@ export default class OmenLightsExtension extends Extension {
 
     _publishFocus() {
         this._cancelNoFocusTimer();
-        if (!this._settings.get_boolean('auto-enabled'))
-            return; // do not write anything while auto mode is off
+        const auto = this._settings.get_value('auto-devices').deepUnpack();
+        if (!Object.values(auto).some(on => on))
+            return; // do not write anything while no device follows the app
 
         const id = this._tracker.focus_app?.get_id() ?? '';
         if (id) {

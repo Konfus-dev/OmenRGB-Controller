@@ -3,6 +3,9 @@
 Switch it on or off under **Main menu > System Settings > Services >
 RGB_HUB**.
 
+It drives two devices, each of which can follow the game or not:
+**OMEN-PC** (cooler LCD, case lights, RAM) and **IQUNIX-KEYBOARD**.
+
 While it is on:
 
 - **In the menus** the PC matches your menu theme. If the theme has an
@@ -11,7 +14,14 @@ While it is on:
   that picture's main colour.
 - **While a game runs** the LCD shows that game's artwork (its logo if one
   was scraped, otherwise its box or a screenshot) and the lights take the
-  artwork's main colour. Games without artwork keep the menu look.
+  artwork's main colour. Games without artwork keep the menu look. The
+  keyboard takes the same colour.
+- **When it is switched off, or Batocera shuts down,** every device is put
+  back to the **Default look**, so whatever starts next (Windows, say) does
+  not show the last game. The keyboard stores it in itself; the cooler's
+  screen cannot hold a picture and goes back to the OMEN logo. Save the
+  Default from EmuBox's menu (Game Settings > RGB HUB), or by hand with
+  `"default-action": "save"` in the settings file.
 
 ## Settings
 
@@ -21,7 +31,8 @@ as the file is saved. Only list what you want to change, for example:
 
 ```json
 {
-    "lights-brightness": 60,
+    "device-brightness": {"OMEN-PC": 60, "IQUNIX-KEYBOARD": 40},
+    "auto-devices": {"OMEN-PC": true, "IQUNIX-KEYBOARD": false},
     "lcd-brightness": 70,
     "auto-idle-image": "/userdata/system/configs/rgb-hub/menu.png",
     "auto-idle-colour": "#00AA00",
@@ -31,14 +42,20 @@ as the file is saved. Only list what you want to change, for example:
 
 | Setting | Meaning | Default |
 |---|---|---|
-| `auto-enabled` | Follow the running game | `true` |
-| `auto-lights` / `auto-lcd` | Let the lights / the LCD follow | `true` |
+| `auto-devices` | Which devices follow the running game | all |
+| `auto-lights` / `auto-lcd` | OMEN-PC: let the lights / the LCD follow | `true` |
 | `auto-idle-image` | Picture shown in the menus | the theme's background |
 | `auto-idle-colour` | Light colour in the menus, `"#RRGGBB"` | from the picture |
-| `lights-enabled` | Case lights on or off | `true` |
-| `lights-brightness`, `lcd-brightness` | Percent | `100`, `80` |
-| `device-modes` | Effect per device: `Static` or `Breathing` (RAM also `Rainbow`, which ignores colours) | `Static` |
+| `device-enabled` | Lights on or off, per device | on |
+| `device-brightness` | Light brightness per device, percent | `100` |
+| `lcd-brightness` | Cooler screen brightness, percent | `80` |
+| `device-modes` | Effect per light: `HP Omen 30L` and `RAM`: `Static` or `Breathing` (RAM also `Rainbow`, which ignores colours); `IQUNIX MG65`: `Static` or `Effect 2` ... `Effect 20` | `Static` |
+| `zone-colours` | Colour per zone, e.g. `"IQUNIX MG65/All keys": "#800080"` | white |
 | `lcd-image` | Picture shown when auto mode is off | none |
+| `default-look` | The Default look (written by `"default-action": "save"`) | |
+
+Settings from OMEN Lights (`/userdata/system/configs/omen-lights`) are
+moved here the first time RGB Hub runs.
 
 ## If something is wrong
 

@@ -50,6 +50,7 @@ class JsonSettings:
         self._defaults = {**DEFAULTS, **(defaults or {})}
         self._warned: set[str] = set()  # problems already reported for the file as it is now
         self._last_text: str | None = None
+        self._notes: dict[str, Any] = {}  # "_..." keys a front end keeps for itself
         self._saved: dict[str, Any] = self._read({})  # what the file says
         self._volatile: dict[str, Any] = {}
         self._subscribers: list[Callable[[str], None]] = []
@@ -120,7 +121,10 @@ class JsonSettings:
             self._warn("should contain one { ... } object; keeping the previous settings")
             return fallback
         good = {}
+        self._notes = {k: v for k, v in data.items() if k.startswith("_")}
         for key, value in data.items():
+            if key.startswith("_"):
+                continue  # a front end's own note (EmuBox's "_seen"): kept, not used
             if key in VOLATILE:
                 continue
             if key not in self._defaults:
@@ -134,6 +138,7 @@ class JsonSettings:
 
     def _write(self) -> None:
         changed = {k: v for k, v in self._saved.items() if v != self._defaults[k]}
+        changed.update(self._notes)
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             temporary = self._path.with_suffix(".tmp")

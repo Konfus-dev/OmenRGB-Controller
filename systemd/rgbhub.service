@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 [Unit]
-Description=RGB Hub service (cooler LCD and case lights)
+Description=RGB Hub (OMEN PC lights and LCD, IQUNIX keyboard)
 After=openrgb-server.service
 Wants=openrgb-server.service
 # When OpenRGB is restarted, stop first and start after it. While we hold a
@@ -14,6 +14,9 @@ ExecStartPre=/usr/bin/glib-compile-schemas %h/.local/share/gnome-shell/extension
 ExecStart=%h/.local/share/rgbhub/venv/bin/python -m rgbhub
 Restart=on-failure
 RestartSec=5
+# On stop the hub first puts the Default look on every device; the RAM takes
+# a few seconds of that.
+TimeoutStopSec=20
 
 [Install]
 WantedBy=default.target

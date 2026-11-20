@@ -43,11 +43,29 @@ mkdir -p "$hooks/suspend" "$hooks/resume"
 install -m 0755 "$repo/frontends/batocera/power/suspend/rgb-hub.sh" "$hooks/suspend/rgb-hub.sh"
 install -m 0755 "$repo/frontends/batocera/power/resume/rgb-hub.sh" "$hooks/resume/rgb-hub.sh"
 
+old="$share/system/omen-lights"
+if [[ -e "$share/system/services/omen_lights" || -d "$old" ]]; then
+    echo "==> Removing the old OMEN Lights program (its settings move on first start)"
+    rm -f "$share/system/services/omen_lights" "$share/system/scripts/omen-lights.sh"
+    rm -f "$hooks/suspend/omen-lights.sh" "$hooks/resume/omen-lights.sh"
+    rm -rf "$old"
+    # Batocera remembers enabled services by name in batocera.conf.
+    conf="$share/system/batocera.conf"
+    if [[ -f "$conf" ]] && grep -q 'omen_lights' "$conf"; then
+        sed -i 's/\bomen_lights\b/rgb_hub/g' "$conf"
+    fi
+fi
+
 echo "==> Settings file (kept if it already exists)"
-mkdir -p "$share/system/configs/rgb-hub"
 settings="$share/system/configs/rgb-hub/settings.json"
-[[ -f "$settings" ]] || printf '{\n}\n' > "$settings"
-cp "$repo/frontends/batocera/README.md" "$share/system/configs/rgb-hub/README.md"
+# An old install's folder is carried over by the program itself on first
+# start; only create a fresh one when there is nothing to carry over.
+if [[ ! -d "$share/system/configs/omen-lights" ]]; then
+    mkdir -p "$share/system/configs/rgb-hub"
+    [[ -f "$settings" ]] || printf '{\n}\n' > "$settings"
+fi
+[[ -d "$share/system/configs/rgb-hub" ]] &&
+    cp "$repo/frontends/batocera/README.md" "$share/system/configs/rgb-hub/README.md"
 
 echo
 echo "Done. Boot Batocera, open Main menu > System Settings > Services,"

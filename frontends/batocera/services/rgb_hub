@@ -3,7 +3,9 @@
 #
 # RGB Hub for Batocera. Shows up as a switch under
 #   Main menu > System Settings > Services
-# and makes the cooler LCD and case lights follow the game being played.
+# and makes the OMEN PC (cooler LCD, case lights, RAM) and the IQUNIX
+# keyboard follow the game being played. Switched off (or at shutdown) it
+# leaves every device showing the Default look.
 #
 # Batocera calls this with "start" or "stop".
 
@@ -60,7 +62,16 @@ case "$1" in
     stop)
         # The keeper first, or it would start the program again.
         running "$keeper" && kill "$(cat "$keeper")" 2>/dev/null
-        running "$pidfile" && kill "$(cat "$pidfile")" 2>/dev/null
+        if running "$pidfile"; then
+            pid=$(cat "$pidfile")
+            kill "$pid" 2>/dev/null
+            # Wait while it puts the Default look on every device (the RAM
+            # takes a few seconds), so a shutdown does not cut it short.
+            for _ in $(seq 100); do
+                kill -0 "$pid" 2>/dev/null || break
+                sleep 0.1
+            done
+        fi
         rm -f "$keeper" "$pidfile"
         ;;
 esac

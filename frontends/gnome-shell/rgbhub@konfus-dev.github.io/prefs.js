@@ -4,7 +4,10 @@
 // menu, or from the Extensions app).
 //
 // Like extension.js, this only reads and writes settings; the background
-// service does the work and reports back through the "status" setting.
+// hub does the work and reports back through the "status" setting.
+//
+// Tabs: Auto (every device's auto switch and the Default look), then one
+// tab per device. A device's tab is there even while it is unplugged.
 
 import Adw from 'gi://Adw';
 import GLib from 'gi://GLib';
@@ -23,6 +26,12 @@ const DEFAULT_MODE = 'Static';
 const FIT_VALUES = ['fill', 'fit'];
 const FIT_LABELS = ['Fill the screen (crop edges)', 'Show the whole image (black bars)'];
 
+// The hub's devices (service/rgbhub/core/settings_schema.py DEVICE_IDS).
+const DEVICES = [
+    {id: 'OMEN-PC', label: 'OMEN-PC', icon: 'computer-symbolic', lcd: true},
+    {id: 'IQUNIX-KEYBOARD', label: 'IQUNIX-KEYBOARD', icon: 'input-keyboard-symbolic', lcd: false},
+];
+
 // --- small helpers ------------------------------------------------------------
 
 /** `list` with `path` moved to the front, no duplicates, at most 8 entries. */
@@ -30,13 +39,28 @@ export function pushRecent(list, path) {
     return [path, ...list.filter(p => p !== path)].slice(0, MAX_RECENT_IMAGES);
 }
 
-/** What the service last reported, or {} if it has never run. */
+/** What the hub last reported, or {} if it is not running. */
 function readStatus(settings) {
     try {
         return JSON.parse(settings.get_string('status'));
     } catch {
         return {};
     }
+}
+
+/** One device's part of the status report, or null. */
+function deviceStatus(status, id) {
+    return (status.devices ?? []).find(device => device.id === id) ?? null;
+}
+
+/** Keep a function in step with some settings until the window closes. */
+function follow(settings, window, keys, refresh) {
+    const ids = keys.map(key => settings.connect(`changed::${key}`, refresh));
+    window.connect('close-request', () => {
+        ids.forEach(id => settings.disconnect(id));
+        return false;
+    });
+    refresh();
 }
 
 function rgbaToHex(rgba) {
@@ -61,6 +85,28 @@ function setEntries(settings, key, entries) {
     if (Object.entries(entries).every(([name, value]) => all[name] === value))
         return; // nothing new: avoid a pointless write
     settings.set_value(key, new GLib.Variant('a{ss}', {...all, ...entries}));
+}
+
+/**
+ * A switch for one entry of a "name -> on/off" setting (device-enabled,
+ * auto-devices). `fallback` is what a missing entry means.
+ */
+function deviceSwitchRow(settings, key, name, fallback, props) {
+    const row = new Adw.SwitchRow(props);
+    const read = () => settings.get_value(key).deepUnpack()[name] ?? fallback;
+    row.active = read();
+    row.connect('notify::active', () => {
+        if (row.active === read())
+            return;
+        const all = settings.get_value(key).deepUnpack();
+        settings.set_value(key, new GLib.Variant('a{sb}', {...all, [name]: row.active}));
+    });
+    const id = settings.connect(`changed::${key}`, () => {
+        if (row.active !== read())
+            row.active = read();
+    });
+    row.connect('destroy', () => settings.disconnect(id));
+    return row;
 }
 
 /** A row with a 0-100 slider tied to an integer setting. */
@@ -122,14 +168,9 @@ function warningGroup() {
     return group;
 }
 
-// --- LCD page -------------------------------------------------------------------
+// --- Cooler LCD (on the OMEN-PC tab) ----------------------------------------------
 
-function buildLcdPage(settings, window) {
-    const page = new Adw.PreferencesPage({title: 'LCD', icon_name: 'video-display-symbolic'});
-
-    const warning = warningGroup();
-    page.add(warning);
-
+function addLcdGroup(page, settings, window) {
     const group = new Adw.PreferencesGroup({
         title: 'Cooler LCD',
         description: 'The round screen on the CPU cooler.',
@@ -239,7 +280,7 @@ function buildLcdPage(settings, window) {
 
     group.add(sliderRow(settings, 'lcd-brightness', 'Brightness'));
 
-    // Keep the preview, labels and warning in step with the settings.
+    // Keep the preview and labels in step with the settings.
     const refresh = () => {
         const path = settings.get_string('lcd-image');
         const fit = settings.get_string('lcd-fit');
@@ -248,31 +289,12 @@ function buildLcdPage(settings, window) {
         imageRow.subtitle = path ? GLib.path_get_basename(path) : 'None (OMEN logo)';
         clearButton.sensitive = Boolean(path);
         fitRow.selected = Math.max(0, FIT_VALUES.indexOf(fit));
-
-        const status = readStatus(settings);
-        if (status.lcd === undefined)
-            warning.show('The RGB Hub service is not running.');
-        else if (status.error)
-            warning.show(status.error);
-        else if (!status.lcd)
-            warning.show('Cooler LCD not found.');
-        else
-            warning.show(null);
     };
-    const ids = ['lcd-image', 'lcd-fit', 'status'].map(
-        key => settings.connect(`changed::${key}`, refresh));
-    ids.push(settings.connect('changed::lcd-recent-images', rebuildRecent));
-    rebuildRecent();
-    window.connect('close-request', () => {
-        ids.forEach(id => settings.disconnect(id));
-        return false;
-    });
-    refresh();
-
-    return page;
+    follow(settings, window, ['lcd-image', 'lcd-fit'], refresh);
+    follow(settings, window, ['lcd-recent-images'], rebuildRecent);
 }
 
-// --- Lights page ----------------------------------------------------------------
+// --- Device pages ---------------------------------------------------------------
 
 /**
  * One group per lighting device: an effect chooser, an "all" colour and a
@@ -365,47 +387,53 @@ function buildDeviceGroup(settings, device) {
     return group;
 }
 
-function buildLightsPage(settings, window) {
-    const page = new Adw.PreferencesPage({title: 'Lights', icon_name: 'keyboard-brightness-symbolic'});
+/** What is wrong with a device right now, or null. */
+function deviceProblem(status, device) {
+    const report = deviceStatus(status, device.id);
+    if (!report)
+        return 'The RGB Hub service is not running.';
+    if (report.error)
+        return report.error;
+    if (!report.connected)
+        return `${device.label} is not connected.`;
+    if (device.lcd && !report.lcd)
+        return 'Cooler LCD not found.';
+    if (device.lcd && !report.case)
+        return 'The case lights cannot be reached (is OpenRGB running?).';
+    return null;
+}
+
+/** One device's tab: its lights, and for the OMEN PC its cooler LCD. */
+function buildDevicePage(settings, window, device) {
+    const page = new Adw.PreferencesPage({title: device.label, icon_name: device.icon});
 
     const warning = warningGroup();
     page.add(warning);
 
-    const group = new Adw.PreferencesGroup({title: 'All lights'});
+    if (device.lcd)
+        addLcdGroup(page, settings, window);
+
+    const group = new Adw.PreferencesGroup({title: 'Lights'});
     page.add(group);
+    group.add(deviceSwitchRow(settings, 'device-enabled', device.id, true, {title: 'Lights on'}));
+    group.add(deviceSliderRow(settings, 'device-brightness', device.id, 'Brightness', null, 100));
 
-    const enabledRow = new Adw.SwitchRow({title: 'Lights on'});
-    settings.bind('lights-enabled', enabledRow, 'active', Gio.SettingsBindFlags.DEFAULT);
-    group.add(enabledRow);
-    group.add(sliderRow(settings, 'lights-brightness', 'Brightness'));
-
-    // Device groups are rebuilt only when the list of devices really changes.
-    let deviceGroups = [];
+    // Lighting groups are rebuilt only when what the hub found really changes.
+    let lightGroups = [];
     let builtFor = null;
     const refresh = () => {
         const status = readStatus(settings);
-        if (status.lcd === undefined)
-            warning.show('The RGB Hub service is not running.');
-        else if (!status.openrgb)
-            warning.show('OpenRGB is not running, so the lights cannot be changed.');
-        else
-            warning.show(null);
-
-        const devices = status.devices ?? [];
-        const signature = JSON.stringify(devices);
+        warning.show(deviceProblem(status, device));
+        const lights = deviceStatus(status, device.id)?.lights ?? [];
+        const signature = JSON.stringify(lights);
         if (signature === builtFor)
             return;
         builtFor = signature;
-        deviceGroups.forEach(g => page.remove(g));
-        deviceGroups = devices.map(device => buildDeviceGroup(settings, device));
-        deviceGroups.forEach(g => page.add(g));
+        lightGroups.forEach(g => page.remove(g));
+        lightGroups = lights.map(light => buildDeviceGroup(settings, light));
+        lightGroups.forEach(g => page.add(g));
     };
-    const id = settings.connect('changed::status', refresh);
-    window.connect('close-request', () => {
-        settings.disconnect(id);
-        return false;
-    });
-    refresh();
+    follow(settings, window, ['status'], refresh);
 
     return page;
 }
@@ -417,35 +445,52 @@ function buildAutoPage(settings, window) {
 
     const group = new Adw.PreferencesGroup({
         title: 'Auto mode',
-        description: 'Match the PC to the app you are using. With nothing in focus, ' +
-            'or an app without an icon, it shows the system\u2019s logo and colour. ' +
+        description: 'Match your devices to the app you are using. With nothing in focus, ' +
+            'or an app without an icon, they show the system\u2019s logo and colour. ' +
             'Your normal settings show while this window has focus.',
     });
     page.add(group);
 
-    const enabledRow = new Adw.SwitchRow({title: 'Auto mode'});
-    settings.bind('auto-enabled', enabledRow, 'active', Gio.SettingsBindFlags.DEFAULT);
-    group.add(enabledRow);
-
-    const lightsRow = new Adw.SwitchRow({
-        title: 'Lights follow the app',
-        subtitle: 'Uses the main colour of the app\u2019s icon',
+    // The master switch is on while every device follows; flipping it sets them all.
+    const allRow = new Adw.SwitchRow({title: 'Auto mode', subtitle: 'Every device'});
+    const everyOn = () => {
+        const auto = settings.get_value('auto-devices').deepUnpack();
+        return DEVICES.every(device => auto[device.id]);
+    };
+    allRow.connect('notify::active', () => {
+        if (allRow.active === everyOn())
+            return;
+        settings.set_value('auto-devices', new GLib.Variant('a{sb}',
+            Object.fromEntries(DEVICES.map(device => [device.id, allRow.active]))));
     });
-    settings.bind('auto-lights', lightsRow, 'active', Gio.SettingsBindFlags.DEFAULT);
-    group.add(lightsRow);
+    group.add(allRow);
 
-    const lcdRow = new Adw.SwitchRow({
-        title: 'LCD shows the app',
-        subtitle: 'Puts the app\u2019s icon on the cooler screen',
-    });
-    settings.bind('auto-lcd', lcdRow, 'active', Gio.SettingsBindFlags.DEFAULT);
-    group.add(lcdRow);
+    const devicesGroup = new Adw.PreferencesGroup({title: 'Per device'});
+    page.add(devicesGroup);
+    for (const device of DEVICES) {
+        const row = deviceSwitchRow(settings, 'auto-devices', device.id, false,
+            {title: device.label});
+        devicesGroup.add(row);
+        if (!device.lcd)
+            continue;
+        const lightsRow = new Adw.SwitchRow({
+            title: 'Lights follow the app',
+            subtitle: 'Uses the main colour of the app\u2019s icon',
+        });
+        settings.bind('auto-lights', lightsRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        const lcdRow = new Adw.SwitchRow({
+            title: 'LCD shows the app',
+            subtitle: 'Puts the app\u2019s icon on the cooler screen',
+        });
+        settings.bind('auto-lcd', lcdRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        for (const sub of [lightsRow, lcdRow]) {
+            sub.add_css_class('indent');
+            row.bind_property('active', sub, 'sensitive', GObject.BindingFlags.SYNC_CREATE);
+            devicesGroup.add(sub);
+        }
+    }
 
-    // The two options only mean something while auto mode is on.
-    for (const row of [lightsRow, lcdRow])
-        enabledRow.bind_property('active', row, 'sensitive', GObject.BindingFlags.SYNC_CREATE);
-
-    // What auto mode last picked up, as reported by the service.
+    // What auto mode last picked up, as reported by the hub.
     const nowRow = new Adw.ActionRow({title: 'Now following'});
     const swatch = new Gtk.ColorDialogButton({
         dialog: new Gtk.ColorDialog({with_alpha: false}),
@@ -455,44 +500,83 @@ function buildAutoPage(settings, window) {
     nowRow.add_suffix(swatch);
     group.add(nowRow);
 
-    const refresh = () => {
+    follow(settings, window, ['status', 'auto-devices'], () => {
+        const on = everyOn();
+        if (allRow.active !== on)
+            allRow.active = on;
+        const anyOn = Object.values(settings.get_value('auto-devices').deepUnpack()).some(v => v);
         const auto = readStatus(settings).auto ?? {};
-        nowRow.visible = settings.get_boolean('auto-enabled');
+        nowRow.visible = anyOn;
         nowRow.subtitle = auto.app
             ? auto.app.replace(/\.desktop$/, '')
             : auto.colour ? 'Nothing in focus (system look)' : 'Your normal settings';
         swatch.visible = Boolean(auto.colour);
         if (auto.colour)
             swatch.rgba = hexToRgba(auto.colour);
-    };
-    const ids = ['status', 'auto-enabled'].map(key => settings.connect(`changed::${key}`, refresh));
-    window.connect('close-request', () => {
-        ids.forEach(id => settings.disconnect(id));
-        return false;
     });
-    refresh();
 
+    page.add(buildDefaultGroup(settings, window));
     return page;
+}
+
+/** The Default look: what every device shows once the hub stops. */
+function buildDefaultGroup(settings, window) {
+    const group = new Adw.PreferencesGroup({
+        title: 'Default look',
+        description: 'Shown on every device when RGB Hub stops (shutting down, logging out, ' +
+            'or the service being stopped), so whatever starts next shows it too. ' +
+            'The keyboard keeps it by itself; the cooler screen cannot keep a picture.',
+    });
+    const saveRow = new Adw.ActionRow({
+        title: 'Save current look as Default',
+        subtitle: 'Each device\u2019s own settings, as on its tab',
+    });
+    const saveButton = new Gtk.Button({label: 'Save', valign: Gtk.Align.CENTER});
+    saveButton.connect('clicked', () => settings.set_string('default-action', 'save'));
+    saveRow.add_suffix(saveButton);
+    group.add(saveRow);
+
+    const loadRow = new Adw.ActionRow({
+        title: 'Go back to the Default',
+        subtitle: 'Makes the Default each device\u2019s own settings again',
+    });
+    const loadButton = new Gtk.Button({label: 'Load', valign: Gtk.Align.CENTER});
+    loadButton.connect('clicked', () => settings.set_string('default-action', 'load'));
+    loadRow.add_suffix(loadButton);
+    group.add(loadRow);
+
+    follow(settings, window, ['status'], () => {
+        const status = readStatus(settings);
+        const running = status.devices !== undefined;
+        saveButton.sensitive = running;
+        loadButton.sensitive = running && Boolean(status['has-default']);
+        saveRow.subtitle = running
+            ? 'Each device\u2019s own settings, as on its tab'
+            : 'Needs the RGB Hub service running';
+    });
+    return group;
 }
 
 /** Extra styling for this window only. */
 function loadStyles() {
     const provider = new Gtk.CssProvider();
-    provider.load_from_string('.omen-lcd-preview { border-radius: 9999px; background: black; }');
+    provider.load_from_string(
+        '.omen-lcd-preview { border-radius: 9999px; background: black; }\n' +
+        'row.indent { padding-left: 24px; }');
     Gtk.StyleContext.add_provider_for_display(
         Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
 }
 
 // --- entry point ----------------------------------------------------------------
 
-export default class OmenLightsPreferences extends ExtensionPreferences {
+export default class RgbHubPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const settings = this.getSettings();
         loadStyles();
-        window.set_search_enabled(false); // two short pages; nothing to search
+        window.set_search_enabled(false); // short pages; nothing to search
         window.set_default_size(560, 760);
-        window.add(buildLcdPage(settings, window));
-        window.add(buildLightsPage(settings, window));
         window.add(buildAutoPage(settings, window));
+        for (const device of DEVICES)
+            window.add(buildDevicePage(settings, window, device));
     }
 }

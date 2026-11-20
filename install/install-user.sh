@@ -17,6 +17,23 @@ venv="$HOME/.local/share/rgbhub/venv"
 extensions="$HOME/.local/share/gnome-shell/extensions"
 units="$HOME/.config/systemd/user"
 
+# --- From before RGB-Hub (OmenRGB-Controller) ----------------------------------
+# Its settings and files are taken over by the hub itself on first start.
+if [[ -e "$units/omenrgb.service" || -L "$extensions/omenrgb@konfus-dev.github.io" ]]; then
+    echo "==> Removing the old OmenRGB-Controller service and extension"
+    systemctl --user disable --now omenrgb.service 2>/dev/null || true
+    rm -f "$units/omenrgb.service"
+    gnome-extensions disable omenrgb@konfus-dev.github.io 2>/dev/null || true
+    rm -f "$extensions/omenrgb@konfus-dev.github.io"
+    rm -rf "$HOME/.local/share/omenrgb"
+    # OpenRGB's folder moves with the rest of ~/.config/omenrgb.
+    systemctl --user stop openrgb-server.service 2>/dev/null || true
+    if [[ -d "$HOME/.config/omenrgb" && ! -e "$HOME/.config/rgbhub" ]]; then
+        mv "$HOME/.config/omenrgb" "$HOME/.config/rgbhub"
+    fi
+    systemctl --user daemon-reload
+fi
+
 echo "==> Python environment in $venv"
 # --system-site-packages lets it use Ubuntu's own Pillow and GTK bindings.
 # Rebuilt when it is missing or broken; an Ubuntu upgrade that brings a new
@@ -84,6 +101,9 @@ systemctl --user stop rgbhub.service
 systemctl --user restart openrgb-server.service || true
 systemctl --user start rgbhub.service
 
+gnome-extensions enable "$uuid" 2>/dev/null || true
+
 echo
-echo "Done. If this is the first install: log out and back in once, then run"
+echo "Done. If this is the first install (or the first since the rename"
+echo "from OmenRGB-Controller): log out and back in once, then run"
 echo "    gnome-extensions enable $uuid"

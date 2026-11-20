@@ -114,3 +114,12 @@ def test_problems_are_reported_once_per_version_of_the_file(tmp_path, caplog):
     path.write_text(json.dumps({"lcd-brightnes": 31}))
     store.reload()
     assert sum("lcd-brightnes" in r.getMessage() for r in caplog.records) == 2
+
+
+def test_a_front_ends_own_notes_are_kept_when_writing(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"_seen": {"omen_x": "1"}, "lcd-brightness": 30}))
+    store = JsonSettings(path)
+    store.set("default-action", "save")
+    data = json.loads(path.read_text())
+    assert data["_seen"] == {"omen_x": "1"} and data["default-action"] == "save"

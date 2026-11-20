@@ -1,9 +1,16 @@
 # RGB-Hub
 
-Control the lighting and the CPU-cooler LCD of an **HP OMEN 45L** desktop
-without HP's Windows software. It runs on a GNOME desktop (developed on
-Ubuntu) and on Batocera, and is built so that other systems and front ends
-can be added without touching the core.
+One place for every lit device on the PC, without the makers' Windows
+software. Today that is two devices:
+
+- **OMEN-PC**: the lighting and the CPU-cooler LCD of an **HP OMEN 45L**
+  desktop (case lights, RAM lights, cooler screen).
+- **IQUNIX-KEYBOARD**: an **IQUNIX MG65** keyboard's lights.
+
+It runs on a GNOME desktop (developed on Ubuntu) and on Batocera, and is
+built so that more devices, systems and front ends can be added without
+touching the core. (It was called OmenRGB-Controller until it learned the
+keyboard.)
 
 This is an unofficial hobby project, not affiliated with HP. Use it at your
 own risk.
@@ -17,18 +24,26 @@ own risk.
   them all off.
 - **RAM lights:** a colour per stick, or a rainbow or breathing effect, with
   the same on/off switch and brightness as the case lights.
+- **Keyboard lights:** a colour, brightness and effect (with its speed)
+  for the IQUNIX keyboard, on or off.
 - **Effects you can tune:** moving effects get a speed slider, and breathing
   gets "dimmest" and "brightest" sliders, on the case as well as the RAM.
-- **Auto mode:** optionally match the PC to what you are doing. With an app
-  (or, on Batocera, a game) in focus, the LCD shows its icon or artwork and
-  the lights take its main colour. With nothing in focus the PC matches
-  its surroundings: the wallpaper on the desktop, the menu theme on
-  Batocera (which can even ship its own LCD animation).
+- **Auto mode:** optionally match your devices to what you are doing. With
+  an app (or, on Batocera, a game) in focus, the LCD shows its icon or
+  artwork and the lights and keyboard take its main colour. With nothing in
+  focus they match the surroundings: the wallpaper on the desktop, the menu
+  theme on Batocera (which can even ship its own LCD animation). One switch
+  turns auto on for every device; each device also has its own.
+- **A Default look:** save a look as the Default, and whenever RGB Hub stops
+  (shutting down, logging out, the service switched off) every device is put
+  back to it, so booting into something else shows that instead of the last
+  app or game. The keyboard stores it in itself; the cooler screen cannot
+  hold a picture and shows the OMEN logo once nothing sends it one.
 - **Smooth and light:** colours glide and the LCD crossfades when something
   changes, everything goes dark when the PC sleeps, and the service does
   almost nothing while the lights are steady.
 - **One place:** an "RGB Hub" button next to Wi-Fi and Bluetooth that
-  opens a settings window for all of it.
+  opens a settings window with an Auto tab and a tab per device.
 - Your choices come back by themselves after a reboot.
 
 ## What it does not do (yet)
@@ -47,6 +62,7 @@ own risk.
 | Lighting board | USB `103c:84fd` "HP TracerLED", driven through OpenRGB 0.9 (shown there as "HP Omen 30L") |
 | Cooler LCD | USB `03f0:7397` "LCD-PUMP", firmware V3.05.024 |
 | RAM | 2 x HP `HP60U40S8HA-16FRE` (Kingston Fury DDR5), set through the BIOS |
+| Keyboard | USB `320f:5055` "IQUNIX MG65", VIA protocol 11 (QMK RGB matrix) |
 
 OpenRGB lists seven light zones for the case. On the 45L only the front logo
 and the three front fans have lights, so the rest are hidden.
@@ -75,13 +91,14 @@ the settings window (or bring it to the front if it is already open).
 ## How it works
 
 ```
- GNOME Shell extension  --settings-->  rgbhub service  -->  cooler LCD (USB)
- (button + settings window)            (Python, runs at  -->  OpenRGB server --> case lights
-                                        login)           -->  root helper --> BIOS --> RAM lights
+ GNOME Shell extension  --settings-->  rgbhub hub ---> OMEN-PC ---------> cooler LCD (USB)
+ (button + settings window)            (Python, runs      |  \---------> OpenRGB server --> case lights
+                                        at login)         |   \--------> root helper --> BIOS --> RAM lights
+                                                          \-> IQUNIX-KEYBOARD --> keyboard (USB, VIA)
 ```
 
-The extension never touches hardware; it only saves settings. The service
-watches those settings and does the work. The LCD forgets its picture unless
+The extension never touches hardware; it only saves settings. The hub
+watches those settings and tells each device what to show. The LCD forgets its picture unless
 it is re-sent, so the service sends it twice a second (this costs almost no
 CPU).
 
@@ -130,17 +147,24 @@ The code is meant to be easy to change and to extend to other systems.
 
 | Folder | What lives there |
 |---|---|
-| `service/rgbhub/core/` | What the LCD and lights should do. No operating-system or hardware-library imports. `interfaces.py` describes what it needs handed in; `settings_schema.py` lists every setting. |
-| `service/rgbhub/backends/` | One file per way of reaching hardware: `hidraw.py` (LCD), `openrgb.py` and `tracer.py` (case lights), `ram_bios.py` (RAM). |
+| `service/rgbhub/core/` | The hub (`hub.py`) and what lights and the LCD should do. No operating-system or hardware-library imports. `device.py` is what a device must offer, `interfaces.py` what else the core needs handed in; `settings_schema.py` lists every setting. |
+| `service/rgbhub/devices/` | One file per device: `omen_pc.py`, `iqunix_keyboard.py`. |
+| `service/rgbhub/backends/` | One file per way of reaching hardware: `hidraw.py` (LCD), `openrgb.py` and `tracer.py` (case lights), `ram_bios.py` (RAM), `via.py` (keyboard). |
 | `service/rgbhub/platforms/` | One file per system (`gnome.py`, `batocera.py`) that picks backends and wires in that system's settings storage, timers and "what is in focus". |
-| `service/rgbhub/omen45l.py` | Facts about this PC model: zone names, hidden zones, colour correction. |
+| `service/rgbhub/omen45l.py`, `iqunix_mg65.py` | Facts about each model: zone and effect names, hidden zones, colour correction. |
 | `frontends/` | What you see and touch: the GNOME Shell extension, the Batocera service switch and game hook. A front end only reads and writes settings. |
 | `helper/` | The small root helper for RAM lights on desktop Linux. |
 | `install/`, `systemd/` | Set-up scripts and service definitions. |
 
+**Adding a device**: write `devices/<name>.py` with the calls listed in
+`core/device.py` (most of the lights work is `core/light_group.py`), add a
+backend if it needs one, add it to each platform's list and its id to
+`DEVICE_IDS` in `core/settings_schema.py`, and give it a tab in the front
+ends.
+
 **Adding a system** (another distro, Windows): write
-`platforms/<name>.py` with a `main()` that builds a `Service` from the
-pieces that fit, and list it in `service/rgbhub/__main__.py`. Reuse the
+`platforms/<name>.py` with a `main()` that builds a `Hub` and its devices
+from the pieces that fit, and list it in `service/rgbhub/__main__.py`. Reuse the
 backends that work there; add one where they do not.
 
 **Adding a front end**: anything that can write the settings in
@@ -183,7 +207,9 @@ gsettings --schemadir ~/.local/share/gnome-shell/extensions/rgbhub@konfus-dev.gi
   after installing. Apps without an icon in your icon theme keep the normal
   look, as does this project's own settings window.
 - **After a full power-off** the LCD shows the logo, and the RAM its
-  rainbow, until you log in.
+  rainbow, until you log in. The keyboard keeps the Default look.
+- **Keyboard not found:** `sudo bash install/setup.sh` gives you access to
+  its lighting interface; unplug and replug it once afterwards.
 - **RAM temperature sensors stopped reporting:** something talked to the RAM
   directly (for example a full OpenRGB scan). Reboot to recover.
 
@@ -199,7 +225,8 @@ rm -r ~/.config/rgbhub
 sudo systemctl disable --now rgbhub-ram.socket rgbhub-ram.service
 sudo rm /etc/systemd/system/rgbhub-ram.socket /etc/systemd/system/rgbhub-ram.service
 sudo rm -r /usr/local/lib/rgbhub
-sudo rm /etc/udev/rules.d/70-omen-lcd.rules /etc/modules-load.d/i2c-dev.conf \
+sudo rm -r /etc/systemd/system/rgbhub-ram.service.d
+sudo rm /etc/udev/rules.d/70-rgb-hub.rules /etc/modules-load.d/i2c-dev.conf \
         /etc/modules-load.d/rgbhub-acpi-call.conf
 ```
 

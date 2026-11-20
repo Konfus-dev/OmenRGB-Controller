@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Lets the logged-in user talk to the devices RGB Hub drives.
+
+# HP OMEN 45L cooler LCD ("LCD-PUMP").
+KERNEL=="hidraw*", ATTRS{idVendor}=="03f0", ATTRS{idProduct}=="7397", TAG+="uaccess"
+
+# IQUNIX MG65 keyboard: only its lighting (VIA) interface, number 1. The
+# others carry the keystrokes, which no program needs to read directly.
+# (Each ATTRS line matches one parent, so the two checks are two rules.)
+KERNEL=="hidraw*", ATTRS{idVendor}=="320f", ATTRS{idProduct}=="5055", ENV{RGBHUB_KEYBOARD}="1"
+KERNEL=="hidraw*", ENV{RGBHUB_KEYBOARD}=="1", ATTRS{bInterfaceNumber}=="01", TAG+="uaccess"

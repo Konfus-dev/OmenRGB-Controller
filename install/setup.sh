@@ -29,10 +29,21 @@ fi
 
 warn() { echo "WARNING: $*" >&2; }
 
-# --- Cooler LCD and case lights ---------------------------------------------
+# --- From before RGB-Hub (OmenRGB-Controller) -----------------------------------
 
-echo "==> Allowing $user to talk to the cooler LCD (USB 03f0:7397)"
-install -m 0644 "$here/70-omen-lcd.rules" /etc/udev/rules.d/70-omen-lcd.rules
+if [[ -e /etc/systemd/system/omenrgb-ram.socket || -e /usr/local/lib/omenrgb ]]; then
+    echo "==> Removing the old OmenRGB-Controller system parts"
+    systemctl disable --now omenrgb-ram.socket omenrgb-ram.service 2>/dev/null || true
+    rm -f /etc/systemd/system/omenrgb-ram.socket /etc/systemd/system/omenrgb-ram.service
+    rm -rf /usr/local/lib/omenrgb
+    rm -f /etc/modules-load.d/omenrgb-acpi-call.conf
+fi
+rm -f /etc/udev/rules.d/70-omen-lcd.rules
+
+# --- Cooler LCD, keyboard and case lights ---------------------------------------
+
+echo "==> Allowing $user to talk to the cooler LCD (USB 03f0:7397) and the IQUNIX keyboard's lights (320f:5055)"
+install -m 0644 "$here/70-rgb-hub.rules" /etc/udev/rules.d/70-rgb-hub.rules
 udevadm control --reload
 udevadm trigger --subsystem-match=hidraw
 
@@ -63,6 +74,11 @@ install -d -m 0755 /usr/local/lib/rgbhub
 install -m 0755 -o root -g root "$repo/helper/rgbhub_ram_helper.py" /usr/local/lib/rgbhub/
 install -m 0644 "$repo/systemd/rgbhub-ram.service" /etc/systemd/system/
 sed "s/@USER@/$user/" "$repo/systemd/rgbhub-ram.socket" > /etc/systemd/system/rgbhub-ram.socket
+# Keep the helper running until the user's own services (the hub) have
+# stopped at shutdown: the hub sends the RAM its Default look then.
+uid="$(id -u "$user")"
+install -d /etc/systemd/system/rgbhub-ram.service.d
+printf '[Unit]\nBefore=user@%s.service\n' "$uid" > /etc/systemd/system/rgbhub-ram.service.d/after-user.conf
 systemctl daemon-reload
 # Stop the running helper first: systemd will not restart a socket whose
 # service is still active. The next request starts the new copy.
