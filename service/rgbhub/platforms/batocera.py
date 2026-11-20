@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The service on Batocera (a console-style system; everything runs as root).
+"""The hub on Batocera (a console-style system; everything runs as root).
+
+Devices: the OMEN PC (cooler LCD, case lights, RAM) and the IQUNIX keyboard.
 
 What this platform chooses:
 - settings:     a JSON file the owner can edit,
@@ -8,6 +10,7 @@ What this platform chooses:
                 plus a game hook (frontends/batocera) that writes the path
                 of the running game to a small file
 - case lights:  our own driver (backends/tracer.py); Batocera has no OpenRGB
+- keyboard:     backends/via.py, as on every system
 - RAM lights:   straight through the BIOS, if the acpi_call kernel module
                 is available; otherwise the RAM is left alone
 - what is in focus: the running game. Its picture is the artwork Batocera
@@ -20,6 +23,7 @@ What this platform chooses:
 
 import argparse
 import importlib.util
+import json
 import logging
 import signal
 from collections.abc import Callable
@@ -27,21 +31,25 @@ from pathlib import Path
 
 from PIL import Image
 
-from .. import omen45l
-from ..backends import hidraw, ram_bios, tracer
+from .. import iqunix_mg65, omen45l
+from ..backends import hidraw, ram_bios, tracer, via
+from ..core.hub import Hub
 from ..core.lcd_fade import fade_frames
 from ..core.lcd_folder import load_lcd_folder
 from ..core.lcd_streamer import LcdStreamer
 from ..core.lights import Lights
 from ..core.look import Looks, cover_lcd
 from ..core.ram import RamLights
-from ..core.service import Service
+from ..core.settings_schema import DEFAULT_KEYS, DEVICE_IDS, migrate
+from ..devices.iqunix_keyboard import IqunixKeyboard
+from ..devices.omen_pc import OmenPc
 from . import batocera_games, batocera_theme, glib_runtime
 from .json_store import JsonSettings
 
 log = logging.getLogger(__name__)
 
 SETTINGS_FILE = Path("/userdata/system/configs/rgb-hub/settings.json")
+OLD_CONFIG = Path("/userdata/system/configs/omen-lights")  # before RGB-Hub
 SUBJECT_FILE = Path("/var/run/rgb-hub/now-playing")  # written by the game hook
 POLL_MS = 1000  # how often the game hook's file and the settings are re-read
 ASLEEP_MARKER = Path("/var/run/rgb-hub/asleep")  # the suspend script waits for this
@@ -52,11 +60,36 @@ RAM_HELPER = Path(__file__).resolve().parents[3] / "helper" / "rgbhub_ram_helper
 
 DEFAULTS = {
     # On a games machine, following the game is the point: on unless switched off.
-    "auto-enabled": True,
+    "auto-devices": {device: True for device in DEVICE_IDS},
     # The RAM's own default effect is a rainbow, which ignores colours and so
     # could never follow a game or the theme. Give it a plain colour instead.
     "device-modes": {"RAM": "Static"},
 }
+
+
+def migrate_old_config(old: Path, settings_file: Path) -> None:
+    """Carry an OmenRGB-Controller install's folder (settings, pictures)
+    over to RGB-Hub's, once. Paths inside the settings follow the move."""
+    new = settings_file.parent
+    if not old.is_dir() or new.exists():
+        return
+    old.rename(new)
+    log.info("Moved %s to %s", old, new)
+    try:
+        text = settings_file.read_text()
+    except OSError:
+        return
+    try:
+        data = json.loads(text.replace(str(old) + "/", str(new) + "/"))
+    except ValueError:
+        log.warning("Old settings in %s could not be read; starting afresh", settings_file)
+        return
+    if isinstance(data, dict):
+        new_settings = migrate(data)
+        # The look the owner had made is the obvious first Default.
+        default = {key: new_settings[key] for key in DEFAULT_KEYS if key in new_settings}
+        new_settings["default-look"] = json.dumps(default, sort_keys=True)
+        settings_file.write_text(json.dumps(new_settings, indent=4, sort_keys=True) + "\n")
 
 
 def _load_picture(path: Path) -> Image.Image:
@@ -129,7 +162,7 @@ def subject_reader(path: Path, settings) -> Callable[[], None]:
     return read
 
 
-def power_handlers(service, marker: Path) -> tuple[Callable[[], None], Callable[[], None]]:
+def power_handlers(hub, marker: Path) -> tuple[Callable[[], None], Callable[[], None]]:
     """What to do when told the system is going to sleep, and that it woke.
 
     Going to sleep ends by creating `marker`: the suspend script holds the
@@ -138,7 +171,7 @@ def power_handlers(service, marker: Path) -> tuple[Callable[[], None], Callable[
 
     def sleep() -> None:
         try:
-            service.on_sleep()
+            hub.on_sleep()
         except Exception:
             log.exception("Could not switch everything off before sleep")
         marker.parent.mkdir(parents=True, exist_ok=True)
@@ -147,7 +180,7 @@ def power_handlers(service, marker: Path) -> tuple[Callable[[], None], Callable[
     def wake() -> None:
         marker.unlink(missing_ok=True)
         try:
-            service.on_resume()
+            hub.on_resume()
         except Exception:
             log.exception("Could not restore the lights after waking")
 
@@ -169,6 +202,8 @@ def main(argv: list[str] | None = None) -> int:
         datefmt="%H:%M:%S",
     )
 
+    if args.settings == SETTINGS_FILE:
+        migrate_old_config(OLD_CONFIG, SETTINGS_FILE)
     settings = JsonSettings(args.settings, DEFAULTS)
     looks = Looks(
         _game_artwork(args.roms),
@@ -177,16 +212,23 @@ def main(argv: list[str] | None = None) -> int:
         load_idle=lambda: _idle_picture(args.logo),
         compose_idle=cover_lcd,  # menu backgrounds and the logo both suit a full screen
     )
-    service = Service(
+    hub = Hub(
         settings,
-        LcdStreamer(hidraw.open_lcd),
-        Lights(tracer.open_board, omen45l.HIDDEN_ZONES, omen45l.LED_GAMMA),
-        ram=_ram_lights(),
-        display_names=omen45l.DISPLAY_NAMES,
+        [
+            OmenPc(
+                LcdStreamer(hidraw.open_lcd),
+                Lights(tracer.open_board, omen45l.HIDDEN_ZONES, omen45l.LED_GAMMA),
+                ram=_ram_lights(),
+                display_names=omen45l.DISPLAY_NAMES,
+                fade=fade_frames,
+                watch_file=glib_runtime.watch_file,
+            ),
+            IqunixKeyboard(
+                Lights(via.opener(iqunix_mg65.MG65)), display_names=iqunix_mg65.DISPLAY_NAMES
+            ),
+        ],
         looks=looks,
-        fade=fade_frames,
         scheduler=glib_runtime.GLibScheduler(),
-        watch_file=glib_runtime.watch_file,
     )
     # Three ways to hear that a game started or stopped, because missing it
     # means the PC never changes: the hook signals us (SIGHUP), the file is
@@ -207,8 +249,7 @@ def main(argv: list[str] | None = None) -> int:
             settings.reload()  # picks up hand edits even if file watching fails
             if (now := _mtime(batocera_theme.ES_SETTINGS)) != theme_seen[0]:
                 theme_seen[0] = now  # the menu's settings changed: maybe a new theme
-                looks.forget_idle()
-                service.on_changed("auto-idle-image")
+                hub.look_again()
         except Exception:
             # One bad look must not end the looking: a timer that raises is dropped.
             log.exception("Unexpected error while checking for changes; carrying on")
@@ -216,15 +257,15 @@ def main(argv: list[str] | None = None) -> int:
 
     # Before anything slow: until these are in place, a "going to sleep"
     # signal would end the program instead of being handled.
-    going_to_sleep, woke_up = power_handlers(service, ASLEEP_MARKER)
+    going_to_sleep, woke_up = power_handlers(hub, ASLEEP_MARKER)
     ASLEEP_MARKER.unlink(missing_ok=True)
     glib_runtime.on_signal(signal.SIGUSR1, going_to_sleep)
     glib_runtime.on_signal(signal.SIGUSR2, woke_up)
     glib_runtime.GLibScheduler().every(POLL_MS, look_again)
-    service.start()
-    log.info("rgbhub service running (Batocera)")
+    hub.start()
+    log.info("RGB-Hub running (Batocera)")
     glib_runtime.run_until_stopped()
     stop_following()
     stop_watching()
-    service.stop()
+    hub.stop()  # leaves the Default look on every device
     return 0

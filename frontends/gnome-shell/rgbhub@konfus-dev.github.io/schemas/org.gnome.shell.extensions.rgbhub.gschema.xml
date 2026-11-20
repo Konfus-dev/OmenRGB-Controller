@@ -2,20 +2,21 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <!--
   Settings shared by the GNOME Shell extension (which writes them) and the
-  background service (which acts on them). After editing this file, run
+  hub (which acts on them). After editing this file, run
   install/install-user.sh again.
 -->
 <schemalist>
   <schema id="org.gnome.shell.extensions.rgbhub" path="/org/gnome/shell/extensions/rgbhub/">
 
-    <key name="lights-enabled" type="b">
-      <default>true</default>
-      <summary>Case lights on or off</summary>
+    <key name="device-enabled" type="a{sb}">
+      <default>{}</default>
+      <summary>Lights on or off, per hub device</summary>
+      <description>Maps a device id ('OMEN-PC', 'IQUNIX-KEYBOARD') to on/off. Missing means on.</description>
     </key>
-    <key name="lights-brightness" type="i">
-      <range min="0" max="100"/>
-      <default>100</default>
-      <summary>Case light brightness, percent</summary>
+    <key name="device-brightness" type="a{si}">
+      <default>{}</default>
+      <summary>Light brightness per hub device, percent</summary>
+      <description>Maps a device id to 0..100. Missing means 100.</description>
     </key>
     <key name="device-modes" type="a{ss}">
       <default>{}</default>
@@ -69,9 +70,10 @@
       <summary>Recently used LCD images, newest first, at most 8</summary>
     </key>
 
-    <key name="auto-enabled" type="b">
-      <default>false</default>
-      <summary>Auto mode: match the lights and LCD to the app in use</summary>
+    <key name="auto-devices" type="a{sb}">
+      <default>{}</default>
+      <summary>Auto mode per hub device: match it to the app in use</summary>
+      <description>Maps a device id to on/off. Missing means off.</description>
     </key>
     <key name="auto-lights" type="b">
       <default>true</default>
@@ -97,10 +99,20 @@
       <description>An app id such as 'firefox.desktop', or empty when nothing has focus. Only kept up to date while auto mode is on.</description>
     </key>
 
+    <key name="default-look" type="s">
+      <default>'{}'</default>
+      <summary>The Default look, shown on every device when the hub stops</summary>
+      <description>JSON: a copy of the look settings (see core/settings_schema.py DEFAULT_KEYS).</description>
+    </key>
+    <key name="default-action" type="s">
+      <default>''</default>
+      <summary>Written by the extension: 'save' makes the current look the Default, 'load' the other way round</summary>
+    </key>
+
     <key name="status" type="s">
       <default>'{}'</default>
-      <summary>Written by the service only</summary>
-      <description>JSON: {"lcd": bool, "openrgb": bool, "ram": bool, "error": str, "auto": {"app": str, "colour": str}, "devices": [{"name": str, "modes": [str], "zones": [str]}]}</description>
+      <summary>Written by the hub only</summary>
+      <description>JSON: {"auto": {"app": str, "colour": str}, "has-default": bool, "devices": [{"id": str, "label": str, "connected": bool, "lights": [{"name": str, "modes": [str], "zones": [str], ...}], ...}]}. OMEN-PC adds "lcd", "case", "ram" (bool) and "error" (str).</description>
     </key>
 
   </schema>

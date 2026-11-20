@@ -6,7 +6,7 @@ fit for Windows later). The file holds only what differs from the defaults,
 so it stays short and easy to edit by hand:
 
     {
-        "lights-brightness": 60,
+        "lcd-brightness": 60,
         "auto-idle-colour": "#00AA00"
     }
 
@@ -36,8 +36,8 @@ def _same_kind(value: Any, default: Any) -> bool:
     if type(value) is not type(default):
         return False
     if isinstance(value, dict):
-        return all(isinstance(k, str) and isinstance(v, (str, int)) and not isinstance(v, bool)
-                   for k, v in value.items())
+        # name -> text, number or on/off
+        return all(isinstance(k, str) and isinstance(v, (str, int)) for k, v in value.items())
     if isinstance(value, list):
         return all(isinstance(item, str) for item in value)
     return True

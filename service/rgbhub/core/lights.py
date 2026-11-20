@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Sets the case lights through OpenRGB.
+"""Sets lights through OpenRGB, or a driver shaped like it.
 
 OpenRGB does the real work of talking to the lighting hardware. This file
 only decides which effect and colours to ask it for. OpenRGB can be absent
@@ -269,6 +269,19 @@ class Lights:
         """Assume the hardware has lost its state (after sleep): the next
         apply sets everything up from scratch, including direct mode."""
         self._glows.clear()
+        for device in self._client.devices if self._client is not None else ():
+            if hasattr(device, "forget"):
+                device.forget()  # a driver that only sends what changed
+
+    def store(self) -> None:
+        """Ask the hardware to keep what it shows now, if it can (only some
+        drivers can; used when the hub stops)."""
+        if self._client is None or not hasattr(self._client, "save"):
+            return
+        try:
+            self._client.save()
+        except Exception as error:
+            log.warning("Could not store the look in the lights: %s", error)
 
     # --- colours drawn by us: fades and breathing --------------------------------
 

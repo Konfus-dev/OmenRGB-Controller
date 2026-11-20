@@ -12,8 +12,8 @@ def test_missing_file_gives_defaults(tmp_path):
 
 
 def test_platform_can_have_its_own_defaults(tmp_path):
-    store = JsonSettings(tmp_path / "settings.json", defaults={"auto-enabled": True})
-    assert store.get("auto-enabled") is True
+    store = JsonSettings(tmp_path / "settings.json", defaults={"auto-lcd": False})
+    assert store.get("auto-lcd") is False
 
 
 def test_values_come_from_the_file(tmp_path):
@@ -53,9 +53,9 @@ def test_reload_picks_up_edits_made_by_hand(tmp_path):
     path.write_text(json.dumps({"lcd-brightness": 30}))
     store, seen = JsonSettings(path), []
     store.subscribe(seen.append)
-    path.write_text(json.dumps({"lcd-brightness": 30, "lights-brightness": 40}))
+    path.write_text(json.dumps({"lcd-brightness": 30, "device-brightness": {"OMEN-PC": 40}}))
     store.reload()
-    assert seen == ["lights-brightness"] and store.get("lights-brightness") == 40
+    assert seen == ["device-brightness"] and store.get("device-brightness") == {"OMEN-PC": 40}
 
 
 def test_bad_files_and_bad_values_fall_back_to_defaults(tmp_path):

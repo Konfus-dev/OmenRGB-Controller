@@ -5,8 +5,9 @@ from rgbhub.platforms.gsettings_store import load_settings
 
 
 def test_defaults(settings):
-    assert settings.get_boolean("lights-enabled") is True
-    assert settings.get_int("lights-brightness") == 100
+    assert settings.get_value("device-enabled").unpack() == {}
+    assert settings.get_value("auto-devices").unpack() == {}
+    assert settings.get_string("default-look") == "{}"
     assert settings.get_boolean("lcd-enabled") is True
     assert settings.get_int("lcd-brightness") == 80
     assert settings.get_string("lcd-image") == ""
@@ -26,10 +27,12 @@ def test_store_reads_and_writes_plain_python_values(settings):
     from rgbhub.platforms.gsettings_store import GSettingsStore
 
     store = GSettingsStore(settings)
-    assert store.get("lights-enabled") is True and store.get("zone-colours") == {}
+    assert store.get("device-enabled") == {} and store.get("zone-colours") == {}
     store.set("zone-colours", {"Case/Logo": "#FF0000"})
     store.set("device-speeds", {"Case": 70})
     store.set("lcd-recent-images", ["/a.png"])
+    store.set("auto-devices", {"OMEN-PC": True})
+    assert store.get("auto-devices") == {"OMEN-PC": True}
     store.set("status", "{}")
     assert store.get("zone-colours") == {"Case/Logo": "#FF0000"}
     assert store.get("device-speeds") == {"Case": 70} and store.get("lcd-recent-images") == [

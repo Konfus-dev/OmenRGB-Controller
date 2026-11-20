@@ -1,11 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The service on a GNOME desktop (developed on Ubuntu).
+"""The hub on a GNOME desktop (developed on Ubuntu).
+
+Devices: the OMEN PC (cooler LCD, case lights, RAM) and the IQUNIX keyboard.
 
 What this platform chooses:
 - settings:     GSettings, shared with the GNOME Shell extension
                 (frontends/gnome-shell), which is the front end
 - case lights:  an OpenRGB server
 - RAM lights:   the root helper, which asks the BIOS
+- keyboard:     backends/via.py (a udev rule lets the owner open it)
 - what is in focus: the app the extension reports; its icon comes from the
                 icon theme. With nothing in focus the LCD shows what is in
                 ~/.config/rgbhub/lcd/ if anything, else the wallpaper, and
@@ -19,16 +22,18 @@ from pathlib import Path
 
 from gi.repository import GLib
 
-from .. import omen45l
-from ..backends import hidraw, openrgb, ram_bios
+from .. import iqunix_mg65, omen45l
+from ..backends import hidraw, openrgb, ram_bios, via
+from ..core.hub import Hub
 from ..core.lcd_fade import fade_frames
 from ..core.lcd_folder import load_lcd_folder
 from ..core.lcd_streamer import LcdStreamer
 from ..core.lights import Lights
 from ..core.look import Looks, cover_lcd
 from ..core.ram import RamLights
-from ..core.service import Service
-from . import glib_runtime, gnome_theme, gtk_icons, logind
+from ..devices.iqunix_keyboard import IqunixKeyboard
+from ..devices.omen_pc import OmenPc
+from . import glib_runtime, gnome_migrate, gnome_theme, gtk_icons, logind
 from .gsettings_store import GSettingsStore, load_settings
 
 log = logging.getLogger(__name__)
@@ -66,6 +71,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         settings = GSettingsStore(load_settings(args.schema_dir))
+        gnome_migrate.migrate_once(settings)
     except FileNotFoundError as error:
         log.error("%s", error)
         return 1
@@ -94,34 +100,37 @@ def main(argv: list[str] | None = None) -> int:
         load_idle=idle_picture,
         compose_idle=cover_lcd,
     )
-    service = Service(
+    hub = Hub(
         settings,
-        LcdStreamer(hidraw.open_lcd),
-        Lights(openrgb.connect, omen45l.HIDDEN_ZONES, omen45l.LED_GAMMA),
-        ram=RamLights(
-            ram_bios.send_to_helper,
-            ram_bios.find_sticks,
-            gamma=omen45l.LED_GAMMA,
-            background=True,
-        ),
-        display_names=omen45l.DISPLAY_NAMES,
+        [
+            OmenPc(
+                LcdStreamer(hidraw.open_lcd),
+                Lights(openrgb.connect, omen45l.HIDDEN_ZONES, omen45l.LED_GAMMA),
+                ram=RamLights(
+                    ram_bios.send_to_helper,
+                    ram_bios.find_sticks,
+                    gamma=omen45l.LED_GAMMA,
+                    background=True,
+                ),
+                display_names=omen45l.DISPLAY_NAMES,
+                fade=fade_frames,
+                watch_file=glib_runtime.watch_file,
+            ),
+            IqunixKeyboard(
+                Lights(via.opener(iqunix_mg65.MG65)), display_names=iqunix_mg65.DISPLAY_NAMES
+            ),
+        ],
         looks=looks,
-        fade=fade_frames,
         scheduler=glib_runtime.GLibScheduler(),
-        watch_file=glib_runtime.watch_file,
     )
-    service.start()
+    hub.start()
 
-    def theme_changed() -> None:
-        looks.forget_idle()
-        service.on_changed("auto-idle-image")  # makes the service look again
-
-    theme.on_change(theme_changed)
+    theme.on_change(hub.look_again)
     # Kept in a variable until we exit: the notifications stop once nothing
     # refers to the connection any more.
-    sleep_watch = logind.watch_for_sleep(service.on_sleep, service.on_resume)
-    log.info("rgbhub service running (GNOME)")
+    sleep_watch = logind.watch_for_sleep(hub.on_sleep, hub.on_resume)
+    log.info("RGB-Hub running (GNOME)")
     glib_runtime.run_until_stopped()
     del sleep_watch
-    service.stop()
+    hub.stop()  # leaves the Default look on every device
     return 0

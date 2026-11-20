@@ -5,11 +5,65 @@ from pathlib import Path
 import pytest
 from gi.repository import GLib
 
+from rgbhub.core.hub import Hub
 from rgbhub.core.image_prep import ImageError
 from rgbhub.core.lights import DeviceInfo, EffectOptions
-from rgbhub.core.service import Service
+from rgbhub.devices.omen_pc import OmenPc
 from rgbhub.platforms.gsettings_store import GSettingsStore as Store
 
+
+class Rig:
+    """A hub with one OMEN-PC device, reached as one object as the old
+    Service was: hub calls first, then the device's, then its lights'."""
+
+    def __init__(self, hub, pc):
+        object.__setattr__(self, "hub", hub)
+        object.__setattr__(self, "pc", pc)
+
+    def __setattr__(self, name, value):
+        setattr(self.hub if name == "_looks" else self.pc, name, value)
+
+    def __getattr__(self, name):
+        aliases = {
+            "flush_lights": self.pc.lights.flush,
+            "lights_update_pending": None,
+            "animation_running": None,
+            "_asleep": None,
+        }
+        if name == "lights_update_pending":
+            return self.pc.lights.update_pending
+        if name == "animation_running":
+            return self.pc.lights.animation_running
+        if name == "_asleep":
+            return self.hub.asleep
+        if name in aliases:
+            return aliases[name]
+        if name in ("stop",):
+            return lambda: self.hub.stop(show_default=False)
+        for target in (self.hub, self.pc):
+            if hasattr(target, name):
+                return getattr(target, name)
+        raise AttributeError(name)
+
+
+def Service(store, streamer, lights, prepare=None, ram=None, display_names=None, looks=None,
+            fade=None, scheduler=None, watch_file=None, **clocks):
+    kwargs = {"prepare": prepare} if prepare is not None else {}
+    pc = OmenPc(streamer, lights, ram=ram, display_names=display_names, fade=fade,
+                watch_file=watch_file, **kwargs)
+    return Rig(Hub(store, [pc], looks=looks, scheduler=scheduler, **clocks), pc)
+
+
+def set_auto(settings, on=True):
+    settings.set_value("auto-devices", GLib.Variant("a{sb}", {"OMEN-PC": on}))
+
+
+def lights_on(settings, on=True):
+    settings.set_value("device-enabled", GLib.Variant("a{sb}", {"OMEN-PC": on}))
+
+
+def brightness(settings, percent):
+    settings.set_value("device-brightness", GLib.Variant("a{si}", {"OMEN-PC": percent}))
 
 class FakeStreamer:
     def __init__(self):
@@ -109,7 +163,20 @@ def parts(settings):
 
 
 def status(settings):
-    return json.loads(settings.get_string("status"))
+    """The status report, with the OMEN-PC's part flattened as it was
+    before there were several devices."""
+    report = json.loads(settings.get_string("status"))
+    if not report:
+        return report
+    pc = report["devices"][0]
+    return {
+        "lcd": pc["lcd"],
+        "openrgb": pc["case"],
+        "ram": pc["ram"],
+        "error": pc["error"],
+        "auto": report["auto"],
+        "devices": pc["lights"],
+    }
 
 
 def test_start_applies_everything_once(parts):
@@ -209,11 +276,11 @@ def test_lcd_brightness_change(parts):
 def test_light_keys_trigger_apply(parts):
     service, settings, _streamer, lights, _prepare = parts
     service.start()
-    settings.set_boolean("lights-enabled", False)
-    settings.set_int("lights-brightness", 40)
+    lights_on(settings, False)
+    brightness(settings, 40)
     settings.set_value("device-modes", GLib.Variant("a{ss}", {"Case": "Off"}))
     settings.set_value("zone-colours", GLib.Variant("a{ss}", {"Case/Logo": "#FF0000"}))
-    for key in ("lights-enabled", "lights-brightness", "device-modes", "zone-colours"):
+    for key in ("device-enabled", "device-brightness", "device-modes", "zone-colours"):
         before = len(lights.applied)
         service.on_changed(key)
         service.flush_lights()
@@ -295,8 +362,8 @@ def test_ram_gets_the_same_settings_as_the_case_lights(with_ram):
     service, settings, ram = with_ram
     service.start()
     assert ram.applied == [(True, 100, {}, {})]
-    settings.set_int("lights-brightness", 30)
-    service.on_changed("lights-brightness")
+    brightness(settings, 30)
+    service.on_changed("device-brightness")
     service.flush_lights()
     assert ram.applied[-1] == (True, 30, {}, {})
 
@@ -307,8 +374,8 @@ def test_ram_changes_are_batched(with_ram):
     service, settings, ram = with_ram
     service.start()
     for value in (90, 80, 70):
-        settings.set_int("lights-brightness", value)
-        service.on_changed("lights-brightness")
+        brightness(settings, value)
+        service.on_changed("device-brightness")
     assert len(ram.applied) == 1  # nothing sent yet
     service.flush_lights()
     assert len(ram.applied) == 2 and ram.applied[-1][1] == 70
@@ -318,8 +385,8 @@ def test_case_light_changes_are_batched_too(parts):
     service, settings, _streamer, lights, _prepare = parts
     service.start()
     for value in (90, 80, 70):
-        settings.set_int("lights-brightness", value)
-        service.on_changed("lights-brightness")
+        brightness(settings, value)
+        service.on_changed("device-brightness")
     assert len(lights.applied) == 1
     service.flush_lights()
     assert len(lights.applied) == 2 and lights.applied[-1][1] == 70
@@ -340,7 +407,7 @@ def test_a_failing_tick_does_not_stop_its_timer():
     def bad_tick():
         raise RuntimeError("boom")
 
-    assert Service._repeat(bad_tick) is True
+    assert Hub.repeat(bad_tick) is True
 
 
 def test_ram_helper_appearing_later_is_picked_up(settings):
@@ -487,8 +554,8 @@ def test_auto_mode_is_off_by_default(auto):
 
 def test_auto_mode_follows_the_focused_app(auto):
     service, settings, streamer, lights = auto
-    settings.set_boolean("auto-enabled", True)
-    service.on_changed("auto-enabled")
+    set_auto(settings, True)
+    service.on_changed("auto-devices")
     focus(service, settings, "firefox.desktop")
     assert streamer.images[-1] == b"firefox icon jpeg"
     colours = lights.applied[-1][3]
@@ -498,7 +565,7 @@ def test_auto_mode_follows_the_focused_app(auto):
 
 def test_unknown_app_falls_back_to_the_normal_settings(auto):
     service, settings, streamer, lights = auto
-    settings.set_boolean("auto-enabled", True)
+    set_auto(settings, True)
     focus(service, settings, "firefox.desktop")
     focus(service, settings, "mystery.desktop")
     assert streamer.images[-1] == b"jpeg of cat.png (fill)"
@@ -508,7 +575,7 @@ def test_unknown_app_falls_back_to_the_normal_settings(auto):
 
 def test_lights_and_lcd_can_follow_separately(auto):
     service, settings, streamer, lights = auto
-    settings.set_boolean("auto-enabled", True)
+    set_auto(settings, True)
     settings.set_boolean("auto-lcd", False)
     focus(service, settings, "firefox.desktop")
     assert streamer.images[-1] == b"jpeg of cat.png (fill)"
@@ -524,10 +591,10 @@ def test_lights_and_lcd_can_follow_separately(auto):
 
 def test_switching_auto_off_restores_the_normal_look(auto):
     service, settings, streamer, lights = auto
-    settings.set_boolean("auto-enabled", True)
+    set_auto(settings, True)
     focus(service, settings, "firefox.desktop")
-    settings.set_boolean("auto-enabled", False)
-    service.on_changed("auto-enabled")
+    set_auto(settings, False)
+    service.on_changed("auto-devices")
     service.flush_lights()
     assert streamer.images[-1] == b"jpeg of cat.png (fill)"
     assert lights.applied[-1][3] == {"Case/Logo": "#0000FF"}
@@ -535,8 +602,8 @@ def test_switching_auto_off_restores_the_normal_look(auto):
 
 def test_switching_apps_does_not_reload_the_picture_from_disk(auto):
     service, settings, _streamer, _lights = auto
-    settings.set_boolean("auto-enabled", True)
-    service.on_changed("auto-enabled")
+    set_auto(settings, True)
+    service.on_changed("auto-devices")
     prepare = service._prepare
     before = len(prepare.calls)
     for app in ("mystery.desktop", "firefox.desktop", "other.desktop"):
@@ -546,7 +613,7 @@ def test_switching_apps_does_not_reload_the_picture_from_disk(auto):
 
 def test_case_lights_are_not_resent_when_the_auto_colour_is_unchanged(auto):
     service, settings, _streamer, lights = auto
-    settings.set_boolean("auto-enabled", True)
+    set_auto(settings, True)
     focus(service, settings, "mystery.desktop")
     settings.set_string("focused-app", "another-unknown.desktop")  # still the normal look
     service.on_changed("focused-app")
@@ -558,7 +625,7 @@ def test_case_lights_are_not_resent_when_the_auto_colour_is_unchanged(auto):
 
 def test_a_broken_picture_is_reported_even_while_an_app_icon_is_shown(auto):
     service, settings, _streamer, _lights = auto
-    settings.set_boolean("auto-enabled", True)
+    set_auto(settings, True)
     focus(service, settings, "firefox.desktop")
     service._prepare.error = "boom"
     service.on_image_file_changed()
@@ -600,8 +667,8 @@ def test_settings_changed_while_asleep_do_not_switch_the_lights_on(with_ram):
     service, settings, ram = with_ram
     service.start()
     service.on_sleep()
-    settings.set_int("lights-brightness", 40)
-    service.on_changed("lights-brightness")
+    brightness(settings, 40)
+    service.on_changed("device-brightness")
     service.flush_lights()
     assert ram.applied[-1][0] is False
 
@@ -674,8 +741,8 @@ def auto_idle(auto):
 
     service, settings, streamer, lights = auto
     service._looks.idle = Look("#E95420", b"os logo jpeg")
-    settings.set_boolean("auto-enabled", True)
-    service.on_changed("auto-enabled")
+    set_auto(settings, True)
+    service.on_changed("auto-devices")
     return service, settings, streamer, lights
 
 
@@ -730,8 +797,8 @@ def animated(auto):
 
     service, settings, streamer, lights = auto
     service._looks.idle = Look("#00FF00", b"f0", (b"f0", b"f1", b"f2"), 100)
-    settings.set_boolean("auto-enabled", True)
-    service.on_changed("auto-enabled")
+    set_auto(settings, True)
+    service.on_changed("auto-devices")
     focus(service, settings, "")
     return service, settings, streamer, lights
 
