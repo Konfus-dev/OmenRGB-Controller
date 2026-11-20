@@ -25,7 +25,7 @@ import select
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .hidraw import find_hid_node
+from .hidraw import HidPort, find_hid_node
 
 log = logging.getLogger(__name__)
 
@@ -160,16 +160,11 @@ class _Keyboard:
         log.debug("Keyboard: value %d = %s", value_id, data)
 
 
-class ViaPort:
+class ViaPort(HidPort):
     """An open VIA interface. write(report), drain() and close(); OSError on failure."""
 
     def __init__(self, node: Path):
-        self._fd: int | None = os.open(node, os.O_RDWR | os.O_NONBLOCK)
-
-    def write(self, report: bytes) -> None:
-        if self._fd is None:
-            raise OSError("connection is closed")
-        os.write(self._fd, report)
+        super().__init__(node, os.O_NONBLOCK)
 
     def drain(self) -> None:
         """Read and drop the keyboard's answer, so answers never pile up."""
@@ -182,14 +177,6 @@ class ViaPort:
             except BlockingIOError:
                 return
             ready, _, _ = select.select([self._fd], [], [], 0)
-
-    def close(self) -> None:
-        if self._fd is not None:
-            try:
-                os.close(self._fd)
-            except OSError:
-                pass
-            self._fd = None
 
 
 class ViaClient:
