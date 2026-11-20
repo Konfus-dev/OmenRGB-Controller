@@ -67,6 +67,37 @@ def default_lcd_folder() -> Path:
     return Path(GLib.get_user_config_dir()) / "rgbhub" / "lcd"
 
 
+def make_looks(theme, lcd_folder: Path) -> Looks:
+    """Auto mode's looks: app icons from the icon theme the desktop names
+    now, and the idle picture (the LCD folder, else the wallpaper, else the
+    OS logo). `theme` is a gnome_theme.DesktopTheme."""
+
+    def idle_picture():
+        """What the owner put in the LCD folder; else the wallpaper; else
+        the OS logo."""
+        override = load_lcd_folder(lcd_folder, cover_lcd)
+        if override is not None:
+            return override
+        wallpaper = theme.wallpaper()
+        if wallpaper:
+            try:
+                return gtk_icons.draw_image_file(wallpaper)
+            except Exception as error:  # GLib raises its own error types
+                log.warning("Cannot use the wallpaper %s: %s", wallpaper, error)
+        return gtk_icons.load_os_logo()
+
+    return Looks(
+        gtk_icons.load_app_icon,
+        ignore=AUTO_IGNORED_APPS,
+        # Another icon theme: other icons, other colours. Asked at each look,
+        # never fixed at start (the service starts before the session's theme
+        # is known, and app colours came from the wrong icons).
+        version=lambda _app: gtk_icons.icon_theme_name(),
+        load_idle=idle_picture,
+        compose_idle=cover_lcd,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--schema-dir", type=Path, default=default_schema_dir())
@@ -87,29 +118,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     theme = gnome_theme.DesktopTheme()
-
-    def idle_picture():
-        """What the owner put in the LCD folder; else the wallpaper; else
-        the OS logo."""
-        override = load_lcd_folder(args.lcd_folder, cover_lcd)
-        if override is not None:
-            return override
-        wallpaper = theme.wallpaper()
-        if wallpaper:
-            try:
-                return gtk_icons.draw_image_file(wallpaper)
-            except Exception as error:  # GLib raises its own error types
-                log.warning("Cannot use the wallpaper %s: %s", wallpaper, error)
-        return gtk_icons.load_os_logo()
-
-    looks = Looks(
-        gtk_icons.load_app_icon,
-        ignore=AUTO_IGNORED_APPS,
-        # another icon theme: other icons, other colours
-        version=lambda _app: gtk_icons.icon_theme_name(),
-        load_idle=idle_picture,
-        compose_idle=cover_lcd,
-    )
+    looks = make_looks(theme, args.lcd_folder)
     hub = Hub(
         settings,
         [

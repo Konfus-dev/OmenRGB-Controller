@@ -107,3 +107,16 @@ def test_a_pale_colour_is_made_more_vivid_but_keeps_its_hue():
     vivid = via.colour_to_hsv(255, 177, 44, saturation_curve=2.2)
     assert vivid[0] == plain[0] and vivid[2] == plain[2] and vivid[1] > plain[1]
     assert via.colour_to_hsv(255, 0, 0, 2.2) == (0, 255, 255)
+
+
+def test_orange_reaches_the_keyboard_as_a_vivid_orange_not_pink():
+    """Regression: the MG65 showed a pale orange as pink. Its model makes
+    colours more vivid, and the keyboard is sent that, with the hue kept."""
+    assert MG65.saturation_curve > 1
+    port, _client, lights = keyboard()
+    assert lights.try_connect()
+    lights.apply(True, 100, {}, {"IQUNIX MG65/All keys": "#FFB12C"})
+    ((hue, sat),) = [c[3:] for c in commands(port) if c[:3] == (7, 3, via.VALUE_COLOUR)]
+    plain_hue, plain_sat, _ = via.colour_to_hsv(255, 177, 44)
+    assert hue == plain_hue and 20 <= hue <= 35  # orange; pink is up near 230
+    assert sat > plain_sat and sat >= 240
