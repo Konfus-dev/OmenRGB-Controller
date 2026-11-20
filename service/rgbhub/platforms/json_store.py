@@ -47,6 +47,10 @@ class JsonSettings:
         return self._saved.get(key, self._defaults[key])
 
     def set(self, key: str, value: Any) -> None:
+        if key not in VOLATILE:
+            # A front end may have saved the file a moment ago, before our
+            # watch noticed. Writing what we last read would undo its change.
+            self.reload()
         if value == self.get(key):
             return
         if key in VOLATILE:

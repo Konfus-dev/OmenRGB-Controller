@@ -133,3 +133,18 @@ def test_a_front_ends_own_notes_are_kept_when_writing(tmp_path):
     store.set("default-action", "save")
     data = json.loads(path.read_text())
     assert data["_seen"] == {"omen_x": "1"} and data["default-action"] == "save"
+
+
+def test_saving_keeps_a_front_ends_edit_not_yet_reloaded(tmp_path):
+    # A front end saves the file; before our watch notices, the hub saves a
+    # setting of its own. The front end's change must survive, and be heard.
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"lcd-brightness": 30}))
+    store, seen = JsonSettings(path), []
+    store.subscribe(seen.append)
+    path.write_text(json.dumps({"lcd-brightness": 30, "device-brightness": {"OMEN-PC": 40}}))
+    store.set("default-action", "")  # unchanged: nothing written, but the edit is read
+    store.set("default-look", '{"lcd-brightness": 30}')
+    data = json.loads(path.read_text())
+    assert data["device-brightness"] == {"OMEN-PC": 40} and "default-look" in data
+    assert seen == ["device-brightness", "default-look"]
