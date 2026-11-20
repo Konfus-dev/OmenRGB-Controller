@@ -119,6 +119,16 @@ def test_save_and_load_the_default_look():
     hub.stop(show_default=False)
 
 
+def test_a_request_left_while_the_hub_was_not_running_is_carried_out():
+    hub, settings, _lights, _ = keyboard_hub(
+        **{"device-brightness": {"IQUNIX-KEYBOARD": 40}, "default-action": "save"}
+    )
+    hub.start()
+    assert settings.get("default-action") == ""
+    assert json.loads(settings.get("default-look"))["device-brightness"] == {"IQUNIX-KEYBOARD": 40}
+    hub.stop(show_default=False)
+
+
 def test_stopping_shows_the_default_without_auto_and_stores_it():
     default = {"zone-colours": {"K/All keys": "#800080"}, "device-modes": {"K": "Breathing"}}
     hub, settings, lights, _ = keyboard_hub(

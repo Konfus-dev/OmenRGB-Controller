@@ -113,6 +113,10 @@ class Hub:
         self._refresh_look()
         for device in self.devices:
             self._each(device.start)
+        # A request made while the hub was not running (a front end that
+        # writes the file directly can) would otherwise never be carried out,
+        # and asking again would not count as a change.
+        self._default_action()
         self.publish_status()
         self._timers = [
             self.scheduler.every(c.RECONNECT_INTERVAL_S * 1000, lambda: self.repeat(self.tick_slow))
