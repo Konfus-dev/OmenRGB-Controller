@@ -143,7 +143,7 @@ class Looks:
         self._load_idle = load_idle
         self._compose = compose  # lays a subject's picture out for the LCD
         self._compose_idle = compose_idle  # the same for the idle picture
-        self._idle: dict[str, Look | None] = {}  # idle looks by picture path ('' = OS logo)
+        self._idle: dict[str, Look | None] = {}  # idle looks by picture path ('' = load_idle's)
         self._remember = remember
         self._version = version
         self._known: OrderedDict[str, tuple[object, Look | None]] = OrderedDict()
@@ -154,7 +154,8 @@ class Looks:
 
     def idle_look(self, image_path: str = "") -> Look | None:
         """The Look for when nothing is in focus: `image_path` if given,
-        otherwise the OS logo. None if there is no usable picture."""
+        otherwise the platform's own idle picture (load_idle: the wallpaper,
+        the menu theme, the OS logo). None if there is no usable picture."""
         if image_path not in self._idle:
             try:
                 if image_path:
@@ -164,7 +165,7 @@ class Looks:
                     picture = self._load_idle() if self._load_idle else None
                 look = _idle_look_from(picture, self._compose_idle)
             except Exception as error:
-                log.warning("No idle look (%s): %s", image_path or "OS logo", error)
+                log.warning("No idle look (%s): %s", image_path or "the system's picture", error)
                 look = None
             self._idle[image_path] = look
         return self._idle[image_path]

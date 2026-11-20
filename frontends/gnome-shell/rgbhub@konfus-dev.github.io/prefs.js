@@ -503,7 +503,7 @@ function buildAutoPage(settings, window) {
     const group = new Adw.PreferencesGroup({
         title: 'Auto mode',
         description: 'Match your devices to the app you are using. With nothing in focus, ' +
-            'or an app without an icon, they show the system\u2019s logo and colour. ' +
+            'or an app without an icon, they match the desktop: its wallpaper and colour. ' +
             'Your normal settings show while this window has focus.',
     });
     page.add(group);
@@ -566,7 +566,7 @@ function buildAutoPage(settings, window) {
         nowRow.visible = anyOn;
         nowRow.subtitle = auto.app
             ? auto.app.replace(/\.desktop$/, '')
-            : auto.colour ? 'Nothing in focus (system look)' : 'Your normal settings';
+            : auto.colour ? 'Nothing in focus (desktop look)' : 'Your normal settings';
         swatch.visible = Boolean(auto.colour);
         if (auto.colour)
             swatch.rgba = hexToRgba(auto.colour);

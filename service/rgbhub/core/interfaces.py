@@ -8,9 +8,10 @@ the implementations for one system. To support a new system, write that one
 file; nothing in the core changes.
 
 Shapes described elsewhere, next to the code that uses them:
-- a lighting client (core/lights.py): `devices`, `update()`, `disconnect()`;
-  each device has `name`, `modes`, `zones`, `set_mode()`, `set_colors()`.
-  OpenRGB's client fits as it is; backends/tracer.py is a second one.
+- a lighting client (core/lights.py): `devices`, `update()`, `disconnect()`,
+  optionally `save()`; each device has `name`, `modes`, `zones`,
+  `set_mode()`, `set_colors()`, optionally `forget()`. OpenRGB's client fits
+  as it is; backends/tracer.py and backends/via.py are two more.
 - an LCD port (core/lcd_streamer.py): `write(bytes)` and `close()`.
 - a RAM sender (core/ram.py): a function taking a list of register writes.
 """

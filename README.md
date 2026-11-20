@@ -204,8 +204,9 @@ gsettings --schemadir ~/.local/share/gnome-shell/extensions/rgbhub@konfus-dev.gi
 - **RAM lights do not react:** check `systemctl status rgbhub-ram.socket`
   and that `lsmod | grep acpi_call` shows the module.
 - **Auto mode does nothing:** it needs the extension, so log out and back in
-  after installing. Apps without an icon in your icon theme keep the normal
-  look, as does this project's own settings window.
+  after installing. Apps without an icon in your icon theme get the same
+  look as nothing in focus (the wallpaper); this project's own settings
+  window keeps your normal look, so you see what you are choosing.
 - **After a full power-off** the LCD shows the logo, and the RAM its
   rainbow, until you log in. The keyboard keeps the Default look.
 - **Keyboard not found:** `sudo bash install/setup.sh` gives you access to

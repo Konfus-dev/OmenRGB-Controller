@@ -172,8 +172,11 @@ app's icon in the current icon theme, picks the icon's most striking colour
 (grouping pixels by hue, ignoring greys, then making the winner vivid enough
 for LEDs), and builds an LCD picture of the icon on black. That colour
 replaces every zone colour and the picture replaces the chosen LCD image
-until focus moves on. Apps with no usable icon, and this project's own
-settings window, fall back to the normal settings.
+until focus moves on. Apps with no usable icon get the idle look, as when
+nothing is in focus (on GNOME: the LCD folder, else the wallpaper, else the
+OS logo, with that picture's main colour; `auto-idle-image` and
+`auto-idle-colour` override it). This project's own settings window falls
+back to the normal settings.
 
 ## Sleep
 
@@ -250,8 +253,9 @@ A set changes only what is shown; a save makes the keyboard keep it with
 no program running. Saves are sent only when the hub stops. Only values
 that changed are sent, and the hub draws nothing frame by frame on the
 keyboard (no fades, no hub-drawn breathing): the keyboard's own effects do
-the moving. The names of its effect numbers are not known yet, so they are
-listed as "Effect N" in `iqunix_mg65.py` until they are seen.
+the moving. The effects' names and numbers, and the brightness (0..9) and
+speed (0..4) ranges, are from IQUNIX's VIA definition of the MG65
+(`iqunix_mg65.py`).
 
 On GNOME a udev rule (`install/70-rgb-hub.rules`) gives the logged-in user
 the lighting interface only, not the ones that carry keystrokes.

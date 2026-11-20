@@ -129,7 +129,7 @@ export default class RgbHubExtension extends Extension {
             return;
         }
         // Nothing has focus. Wait, then report it only if still true: the
-        // service then shows the idle look (the OS logo and colour).
+        // service then shows the idle look (the wallpaper and its colour).
         this._noFocusTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, NO_FOCUS_DELAY_MS, () => {
             this._noFocusTimer = null;
             if (!this._tracker.focus_app)

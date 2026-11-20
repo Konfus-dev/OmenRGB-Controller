@@ -86,7 +86,7 @@
     <key name="auto-idle-image" type="s">
       <default>''</default>
       <summary>In auto mode, the picture shown when nothing is in focus</summary>
-      <description>Absolute path. Empty uses the operating system's logo.</description>
+      <description>Absolute path. Empty uses ~/.config/rgbhub/lcd/ if it holds anything, else the wallpaper, else the operating system's logo.</description>
     </key>
     <key name="auto-idle-colour" type="s">
       <default>''</default>
