@@ -847,6 +847,17 @@ def test_animation_stops_with_auto_mode_or_auto_lcd_off(animated):
     assert service.lcd_animating is False
 
 
+def test_an_idle_colour_of_the_owners_keeps_the_animation(animated):
+    service, settings, streamer, lights = animated
+    settings.set_string("auto-idle-colour", "#00AA00")
+    service.on_changed("auto-idle-colour")
+    service.flush_lights()
+    assert lights.applied[-1][3].get("Case/Logo") == "#00AA00"
+    assert service.lcd_animating is True
+    service.tick_lcd_animation()
+    assert streamer.images[-1] == b"f1"
+
+
 def test_animation_pauses_while_asleep(animated):
     service, _settings, streamer, _lights = animated
     service.on_sleep()

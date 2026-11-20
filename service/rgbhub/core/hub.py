@@ -7,6 +7,7 @@ about each of these. It writes a small status report back for the settings
 window, and when it stops it leaves every device showing the Default look.
 """
 
+import dataclasses
 import json
 import logging
 import time
@@ -191,9 +192,10 @@ class Hub:
         """Work out what auto mode wants shown right now.
 
         An app (or game) with a usable icon gets its own look. Nothing in
-        focus, or something without an icon, gets the idle look: the OS
-        logo and its colour unless the owner chose otherwise. Apps on the
-        ignore list leave the owner's normal settings showing.
+        focus, or something without an icon, gets the idle look: the
+        system's idle picture (the wallpaper, the menu theme, the OS logo)
+        and its colour, unless the owner chose a picture or colour. Apps on
+        the ignore list leave the owner's normal settings showing.
         """
         self.look = None
         if not (self._looks and self.auto_wanted):
@@ -213,7 +215,7 @@ class Hub:
         idle = self._looks.idle_look(self._settings.get("auto-idle-image"))
         colour = self._settings.get("auto-idle-colour")
         if idle and colour:
-            idle = Look(colour, idle.jpeg)
+            idle = dataclasses.replace(idle, colour=colour)  # keeps an animation's frames
         return idle
 
     def look_again(self) -> None:
