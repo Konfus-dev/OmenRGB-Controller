@@ -139,3 +139,79 @@ def test_handle_line_survives_call_errors(tmp_path):
 
     answer = h.handle_line("W c2 20 64", call, make_sysfs(tmp_path, 0x51), sleep=lambda s: None)
     assert answer.startswith("ERR")
+
+
+# --- the worst case: a write reaching a stick's SPD EEPROM (0x50-0x57) ----------
+
+SPD_7BIT = range(0x50, 0x58)  # each stick's own description; corrupting it is permanent
+SPD_8BIT = range(0xA0, 0xB0)  # the same chips as 8-bit (shifted) addresses
+
+
+def test_the_address_list_never_reaches_the_spd_eeproms():
+    for address in h.ALLOWED_ADDRESSES:
+        assert address not in SPD_7BIT and address not in SPD_8BIT
+        assert address >> 1 not in SPD_7BIT  # also when read as a shifted address
+    # The lighting controllers only: 0x60-0x63 shifted, as HP's software sends them.
+    assert {address >> 1 for address in h.ALLOWED_ADDRESSES} <= set(range(0x60, 0x64))
+
+
+@pytest.mark.parametrize("address", [*SPD_7BIT, *SPD_8BIT])
+def test_spd_addresses_are_refused_for_every_register(address):
+    for register in h.ALLOWED_REGISTERS:
+        with pytest.raises(ValueError):
+            h.parse_request(f"W {address:02x} {register:02x} 00")
+
+
+def test_every_reply_to_an_spd_address_is_an_error_and_nothing_is_sent(tmp_path):
+    sysfs = make_sysfs(tmp_path, *SPD_7BIT)
+    sent = []
+    for address in [*SPD_7BIT, *SPD_8BIT]:
+        answer = h.handle_line(
+            f"W {address:02x} 20 64", sent.append, sysfs, sleep=lambda s: None, ready=lambda: True
+        )
+        assert answer.startswith("ERR")
+    assert sent == []
+
+
+def test_the_only_way_out_is_the_bios():
+    """No SMBus write path: the helper imports nothing that can reach a bus,
+    and the one file it writes is acpi_call's."""
+    import ast
+
+    tree = ast.parse(HELPER.read_text())
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported |= {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom):
+            imported.add(node.module.split(".")[0])
+    assert imported <= {"socket", "sys", "time", "pathlib"}, imported
+
+    writes = [
+        ast.unparse(node.func)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"write_text", "write_bytes", "open", "write"}
+    ]
+    # ACPI_CALL.write_text, and the socket stream's replies.
+    assert sorted(writes) == ["ACPI_CALL.write_text", "stream.write", "stream.write"]
+    assert not [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in {"open", "exec", "eval", "__import__"}
+    ]
+    assert h.ACPI_CALL == Path("/proc/acpi/call")
+
+
+def test_every_allowed_command_is_the_bios_lighting_call():
+    for address in h.ALLOWED_ADDRESSES:
+        for register, values in h.ALLOWED_REGISTERS.items():
+            for value in (min(values), max(values)):
+                command = h.acpi_command(
+                    *h.parse_request(f"W {address:02x} {register:02x} {value:02x}")
+                )
+                assert command.startswith(h.ACPI_METHOD + " b" + h.REQUEST_HEAD)
+                assert command.endswith(f"{register:02x}{value:02x}{address:02x}")
